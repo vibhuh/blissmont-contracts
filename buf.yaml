@@ -1,0 +1,26 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  # BASIC catches enum/field/message case + structural mistakes on future contracts.
+  # Two rules are excepted because the v1.0.0 contracts cannot satisfy them without a
+  # wire-breaking rename or a directory restructure — both out of scope for the gate:
+  #   - PACKAGE_DIRECTORY_MATCH: files sit in pos/v1 (not blissmont/pos/v1). Moving them
+  #     is a layout change that also re-touches rachis-core's codegen paths.
+  #   - IMPORT_USED: pos.proto carries two unused well-known imports inherited verbatim
+  #     from the pre-extraction source; removing them is a (harmless) source edit deferred
+  #     to keep extraction a pure relocation.
+  # Adopting full STANDARD naming + the blissmont/<area>/v1 layout is a deliberate future
+  # change (a v2 namespace move), not a silent lint flip.
+  use:
+    - BASIC
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+    - IMPORT_USED
+breaking:
+  # The release gate. WIRE_JSON enforces exactly the README wire-compat rule: no field
+  # renumber/reuse, no type change, no non-reserved deletion — additive only. A new major
+  # ships as a new package namespace (blissmont.pos.v2) in a new file, which does not
+  # conflict with v1 under this check.
+  use:
+    - WIRE_JSON

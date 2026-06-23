@@ -93,8 +93,27 @@ Every PR is reviewed against the four questions in `.github/PULL_REQUEST_TEMPLAT
 "why is this a contract change rather than an implementation change?" — is the guard that keeps
 engine/server concerns from leaking onto the wire.
 
-Breaking-change enforcement via Buf is a **release gate** (Milestone 0.5+): no new contract
-version may be tagged unless Buf's breaking-change check passes against the previous tag.
+### Buf release gate (enforced)
+
+Breaking-change enforcement via [Buf](https://buf.build) is a **release gate**, not a
+convenience: no new contract version may be tagged unless the breaking-change check passes
+against the previous release tag. This makes the wire-compatibility rule and the semver
+policy machine-enforced rather than remembered.
+
+- **`buf.yaml`** pins the rules: `breaking: WIRE_JSON` (the wire-compat gate) and a pragmatic
+  `lint: BASIC` set. Two lint rules (`PACKAGE_DIRECTORY_MATCH`, `IMPORT_USED`) are excepted
+  because the v1.0.0 contracts can't satisfy them without a wire-breaking rename or a layout
+  change — adopting full `STANDARD` lint + the `blissmont/<area>/v1` layout is a deliberate
+  future (v2) change, documented in `buf.yaml`.
+- **CI** (`.github/workflows/buf.yml`) runs `buf build` + `buf lint` on every push/PR and
+  `buf breaking` against the latest release tag — so a wire break is caught at review time,
+  before a tag is cut.
+- **Locally:** `make check` (or `make lint` / `make breaking`) runs the same gate. Requires
+  `buf 1.47.2`.
+
+An intentional breaking change is never an exception to the gate — it ships as a new major
+package namespace (`blissmont.pos.v2`) in a new file, which does not conflict with `v1` under
+the breaking check.
 
 ## Versioning
 

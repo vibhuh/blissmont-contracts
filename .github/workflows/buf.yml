@@ -1,0 +1,47 @@
+name: buf
+
+# Release gate for blissmont-contracts. A contract change is wire-incompatible only
+# if buf says so — this is what makes the README wire-compat rule and the semver policy
+# machine-enforced rather than remembered. lint runs on every push/PR; the breaking-change
+# check runs against the latest released tag so no change can silently break a field client.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  buf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags required for the breaking-change baseline
+
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          version: 1.47.2
+
+      # Contracts must always compile.
+      - name: buf build
+        run: buf build
+
+      # Style gate (pragmatic BASIC set — see buf.yaml for the rationale).
+      - name: buf lint
+        run: buf lint
+
+      # The wire-compat release gate: compare HEAD against the latest released tag.
+      # On the very first tag (no prior release) there is nothing to compare against.
+      - name: buf breaking (vs latest release tag)
+        run: |
+          latest="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
+          if [ -z "$latest" ]; then
+            echo "No prior release tag — skipping breaking-change check."
+            exit 0
+          fi
+          echo "Comparing against $latest"
+          buf breaking --against ".git#tag=${latest}"

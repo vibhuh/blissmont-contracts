@@ -25,4 +25,4 @@ component that consumes it. Answer all four — Q3 is the key guard.
 
 - [ ] Semver bump matches the change class (patch = docs/tooling, minor = additive, major = breaking).
 - [ ] `VERSION` updated.
-- [ ] Buf breaking-change check passes (release gate — Milestone 0.5+).
+- [ ] `buf lint` + `buf breaking` pass (the release gate — run `make check`). CI enforces this.
