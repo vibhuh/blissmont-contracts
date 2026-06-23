@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package blissmont.common.v1;
+
+option go_package = "rachis-core/internal/grpc/common/v1;commonv1";
+
+// Timestamp is the family-wide instant, carried as an RFC3339 / ISO-8601 UTC
+// string. This matches the existing pos/terminal contracts (every time field is
+// an RFC3339 string) rather than google.protobuf.Timestamp, so adoption later is
+// a like-for-like field swap, not a representation change. Always UTC.
+message Timestamp {
+  string rfc3339 = 1; // e.g. "2026-06-23T10:15:30Z" — UTC, RFC3339
+}

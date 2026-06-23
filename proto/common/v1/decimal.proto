@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package blissmont.common.v1;
+
+option go_package = "rachis-core/internal/grpc/common/v1;commonv1";
+
+// Decimal is the family-wide arbitrary-precision decimal carried as a string.
+// NEVER use float/double for money or any value where rounding matters — the
+// whole engine works on exact decimal strings (see rachis-core internal/money).
+// One definition, family-wide, so no two contracts disagree on representation.
+message Decimal {
+  string value = 1; // e.g. "1250.00", "0.18" — canonical decimal string, no locale
+}

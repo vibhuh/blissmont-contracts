@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package blissmont.common.v1;
+
+option go_package = "rachis-core/internal/grpc/common/v1;commonv1";
+
+// Money is the ONE money type for the whole BlissMont family.
+//
+// Representation rule (HARD): the amount is a decimal STRING, never a paise /
+// minor-unit int64. The engine and the accounting core both work on exact
+// decimal strings (rachis-core internal/money). Mixing a paise-int64 money in
+// one contract with a decimal-string money in another is exactly the 1-paise
+// drift this single definition exists to prevent.
+message Money {
+  string currency_code = 1; // ISO 4217, e.g. "INR"
+  string units_str     = 2; // decimal string, e.g. "1250.00" — NEVER an int minor unit
+}

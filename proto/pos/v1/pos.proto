@@ -1,0 +1,351 @@
+syntax = "proto3";
+
+package blissmont.pos.v1;
+
+option go_package = "rachis-core/internal/grpc/pos/v1;posv1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+// ── POS Service ───────────────────────────────────────────────────────────────
+//
+// Used by Android tablet POS terminals (Flutter).
+// Authentication: every RPC carries a terminal API key in metadata:
+//   "x-terminal-id":      terminal UUID
+//   "x-api-key":          api_key_hash (bcrypt-verified server-side)
+//   "x-tenant-id":        tenant UUID  (double-checked against terminal row)
+//
+// Offline-first: terminals sync a product cache on boot via SyncProducts.
+// Orders are queued locally and flushed via SubmitOrder when connectivity
+// returns. The terminal_sync_log table tracks device_seq for gap detection.
+
+service PosService {
+  // Terminal lifecycle
+  rpc RegisterTerminal(RegisterTerminalRequest) returns (RegisterTerminalResponse);
+  rpc HeartbeatTerminal(HeartbeatRequest)       returns (HeartbeatResponse);
+
+  // Shift management
+  rpc OpenShift(OpenShiftRequest)   returns (ShiftResponse);
+  rpc CloseShift(CloseShiftRequest) returns (ShiftResponse);
+
+  // Product cache sync (server-streaming — terminal pulls on boot)
+  rpc SyncProducts(SyncProductsRequest) returns (stream ProductCacheItem);
+
+  // Order submission
+  rpc SubmitOrder(SubmitOrderRequest)   returns (SubmitOrderResponse);
+  rpc SubmitRefund(SubmitRefundRequest) returns (SubmitRefundResponse);
+
+  // Cash movements
+  rpc RecordCashMovement(CashMovementRequest) returns (CashMovementResponse);
+
+  // EOD batch close
+  rpc CloseEODbatch(CloseEODBatchRequest) returns (CloseEODBatchResponse);
+
+  // Sync log flush (client-streaming — terminal pushes queued events)
+  rpc FlushSyncLog(stream SyncLogEntry) returns (SyncLogFlushResponse);
+
+  // Offline boot config — terminal pulls its full operating snapshot on launch
+  rpc GetTerminalConfig(GetTerminalConfigRequest) returns (TerminalConfigSnapshot);
+}
+
+// ── Terminal ─────────────────────────────────────────────────────────────────
+
+message RegisterTerminalRequest {
+  string store_id          = 1; // UUID
+  string device_fingerprint = 2;
+  string device_model       = 3;
+  string app_version        = 4;
+}
+
+message RegisterTerminalResponse {
+  string terminal_id = 1; // UUID — store on device
+  string api_key     = 2; // plaintext — store securely on device; hash saved server-side
+}
+
+message HeartbeatRequest {
+  string terminal_id = 1;
+  string app_version = 2;
+  bool   is_online   = 3;
+}
+
+message HeartbeatResponse {
+  bool   config_changed     = 1; // true → call SyncProducts
+  string server_time_utc    = 2; // RFC3339 — for clock-skew detection
+}
+
+// ── Shifts ────────────────────────────────────────────────────────────────────
+
+message OpenShiftRequest {
+  string terminal_id      = 1;
+  string cashier_user_id  = 2; // UUID
+  string opening_cash_str = 3; // decimal string e.g. "5000.00"
+  string client_ref       = 4; // device-local idempotency key; replay returns the same shift
+}
+
+message CloseShiftRequest {
+  string shift_id         = 1; // UUID
+  string closing_cash_str = 2;
+  repeated Denomination denominations = 3;
+}
+
+message Denomination {
+  int32  unit_value  = 1; // e.g. 500, 200, 100 …
+  int32  count       = 2;
+}
+
+message ShiftResponse {
+  string shift_id    = 1;
+  string status      = 2; // "open" | "closed"
+  string opened_at   = 3; // RFC3339
+  string closed_at   = 4; // RFC3339, empty if open
+  string cash_variance_str = 5; // decimal
+}
+
+// ── Products ──────────────────────────────────────────────────────────────────
+
+message SyncProductsRequest {
+  string terminal_id    = 1;
+  string last_synced_at = 2; // RFC3339; empty for full sync
+}
+
+message ProductCacheItem {
+  string   item_id           = 1;  // UUID
+  string   sku               = 2;
+  string   name              = 3;
+  string   unit_price_str    = 4;  // decimal
+  string   tax_rate_str      = 5;  // decimal e.g. "0.18"
+  string   hsn_sac_code      = 6;
+  string   barcode           = 7;
+  bool     is_active         = 8;
+  string   updated_at        = 9;  // RFC3339
+  bytes    thumbnail_webp    = 10; // optional; omit if nil
+}
+
+// ── Orders ────────────────────────────────────────────────────────────────────
+
+message SubmitOrderRequest {
+  string terminal_id   = 1;
+  string shift_id      = 2;
+  string client_ref    = 3; // device-local idempotency key
+  string order_date    = 4; // RFC3339
+  repeated OrderLine lines    = 5;
+  repeated Payment   payments = 6;
+  string notes        = 7;
+  string order_discount_str = 8; // bill-level discount; reporting metadata only
+                                 // (stored on pos_orders.order_discount_amount),
+                                 // NEVER re-applied to tax — the per-line
+                                 // discount_str already carries its distributed
+                                 // share so the wire stays single-path per-line.
+}
+
+message OrderLine {
+  string item_id        = 1;
+  string sku            = 2;
+  string description    = 3;
+  int32  quantity       = 4;
+  string unit_price_str = 5;
+  string discount_str   = 6;
+  string tax_rate_str   = 7;
+}
+
+message Payment {
+  string method     = 1; // "cash" | "credit_card" | "upi" | "wallet"
+  string amount_str = 2;
+  string reference  = 3; // card last-4, UPI txn id, etc.
+}
+
+message SubmitOrderResponse {
+  string order_id      = 1; // server-assigned UUID
+  string receipt_no    = 2;
+  string total_str     = 3;
+  string tax_total_str = 4;
+  string created_at    = 5; // RFC3339
+}
+
+// ── Refunds ───────────────────────────────────────────────────────────────────
+
+message SubmitRefundRequest {
+  string order_id    = 1;
+  string shift_id    = 2;
+  string reason      = 3;
+  repeated RefundLine lines = 4;
+  string client_ref  = 5; // device-local idempotency key; replay returns the same refund
+}
+
+message RefundLine {
+  string order_line_id = 1;
+  int32  quantity      = 2;
+}
+
+message SubmitRefundResponse {
+  string refund_id     = 1;
+  string refund_no     = 2;
+  string total_str     = 3;
+  string created_at    = 4;
+}
+
+// ── Cash movements ────────────────────────────────────────────────────────────
+
+message CashMovementRequest {
+  string shift_id    = 1;
+  string type        = 2; // "cash_in" | "cash_out" | "payout"
+  string amount_str  = 3;
+  string reason      = 4;
+  string client_ref  = 5; // device-local idempotency key; replay is a no-op confirm
+  string category    = 6; // payout category (supplier|petty_cash|drop_to_safe|owner_draw);
+                          // server resolves it to a GL account. Empty for cash_in/out.
+}
+
+message CashMovementResponse {
+  string movement_id = 1;
+  string created_at  = 2;
+}
+
+// ── EOD batch ─────────────────────────────────────────────────────────────────
+
+message CloseEODBatchRequest {
+  string store_id   = 1;
+  string batch_date = 2; // "YYYY-MM-DD"
+  string client_ref = 3; // device-local idempotency key; replay returns the same batch
+  repeated string shift_ids = 4; // server shift ids consolidated into this GL batch
+}
+
+message CloseEODBatchResponse {
+  string batch_id      = 1;
+  string status        = 2;
+  string total_sales   = 3;
+  string total_refunds = 4;
+  string net_sales     = 5;
+}
+
+// ── Sync log ──────────────────────────────────────────────────────────────────
+
+message SyncLogEntry {
+  string terminal_id       = 1;
+  int64  device_seq        = 2; // monotonic counter on device for gap detection
+  string event_type        = 3; // entity_type: "order" | "refund" | "cash_movement"
+  string payload_json      = 4;
+  string created_at_device = 5; // RFC3339 device clock
+  string entity_id         = 6; // UUID of the entity this event refers to;
+                                // (terminal_id, event_type, entity_id) is the
+                                // idempotency key for terminal_sync_log
+}
+
+message SyncLogFlushResponse {
+  int32 accepted = 1;
+  int32 rejected = 2;
+  repeated string rejected_seqs = 3;
+}
+
+// ── Terminal config (offline boot snapshot) ────────────────────────────────────
+
+message GetTerminalConfigRequest {
+  string terminal_id = 1;
+}
+
+// TerminalConfigSnapshot is everything a terminal needs to operate offline.
+// Deliberately scoped: NO GL account ids (server-side posting concern — never
+// leak to the device), NO tax rules (tax rides on products via SyncProducts),
+// NO receipt_seq (server owns the atomic increment; the device shows a
+// provisional number offline). Printer config stays device-local.
+message TerminalConfigSnapshot {
+  string store_code         = 1;
+  string store_name         = 2;
+  string gstin              = 3;
+  string gst_category       = 4;
+  string receipt_prefix     = 5;
+  string currency_code      = 6;
+  string currency_symbol    = 7;
+  int32  currency_decimals  = 8;
+  string timezone           = 9;  // IANA name, e.g. "Asia/Kolkata"
+  string eod_cutoff_time    = 10; // "HH:MM:SS"
+  repeated PaymentMethodConfig payment_methods = 11;
+  bool   allow_discounts    = 12;
+  string max_discount_pct   = 13; // decimal string e.g. "10.00"
+  bool   require_customer   = 14;
+  bool   auto_print_receipt = 15;
+  bool   cash_rounding      = 16;
+  string fetched_at         = 17; // RFC3339 server checkpoint
+  // Dual-discount keys (resolved server-side: terminal > store > company >
+  // default). The engine reads one effective value per key and gates both
+  // discount commands; it never sees the hierarchy.
+  bool   line_discount_enabled    = 18;
+  string max_line_discount_pct    = 19; // decimal string e.g. "10.00"
+  bool   order_discount_enabled   = 20;
+  string max_order_discount_pct   = 21; // decimal string e.g. "10.00"
+  string discount_entry_mode      = 22; // "percent" | "amount" (display only)
+  bool   bill_discount_on_receipt = 23; // print bill discount as its own line
+
+  // ── Slice-3 billing-UX keys (UX §12 server/terminal split). All resolved
+  // server-side (company → store → terminal) into one effective value per key,
+  // except the two marked terminal-local render choices. Defaulted fast/safe.
+
+  // Entry / line behaviour (UX §7).
+  string entry_quantity   = 24; // "prompt" | "default_one"
+  string entry_price      = 25; // "prompt" | "from_catalog"
+  string entry_discount   = 26; // "prompt" | "none"
+  string discount_input   = 27; // "percent" | "amount" | "both"
+
+  // Catalog (UX §4) — catalog_mode is a TERMINAL-LOCAL render choice.
+  string catalog_mode             = 28; // "search" | "browse"
+  repeated SaleColumn sale_columns = 29; // ordered sale-table columns (render)
+
+  // Tender (UX §6).
+  string tender_complete_mode = 30; // "auto" | "confirm"
+  string default_receipt      = 31; // "print" | "no_print"
+  string upi_capture_mode     = 32; // "manual" | "dynamic_qr"
+
+  // Behaviour (UX §8).
+  string same_item_scan          = 33; // "separate" | "merge" | "block"
+  bool   allow_edit_bill         = 34;
+  bool   allow_returns           = 35;
+  bool   allow_zero_rate         = 36; // server-fiscal
+  bool   sale_price_inclusive_tax = 37; // server-fiscal
+  bool   roundoff                = 38;
+  string default_price_level     = 39;
+  bool   message_after_save      = 40;
+  bool   promotions_enabled      = 41;
+  bool   loyalty_enabled         = 42;
+
+  // Returns (UX §9).
+  bool   allow_blind_return    = 43;
+  string refund_tender_mode    = 44; // "original" | "cash" | "both"
+  string return_requires_auth  = 45; // "always" | "config" | "never"
+  bool   restock_default       = 46;
+  bool   allow_partial_return  = 47;
+
+  // Cash control (UX §12).
+  string shift_count_mode      = 48; // "blind" | "open"
+  string shift_count_entry     = 49; // "denomination" | "total"
+  string variance_tolerance    = 50; // decimal string
+  bool   variance_requires_auth = 51;
+  bool   payout_enabled        = 52;
+  repeated PayoutCategory payout_categories = 53; // category → GL account
+  string held_cart_expiry      = 54; // duration string e.g. "24h"
+
+  // Misc charges (UX §11).
+  string misc_charge_tax_mode  = 55; // "taxable" | "exempt"
+  string misc_charge_tax_rate  = 56; // decimal string e.g. "0.18"
+}
+
+// SaleColumn is one column of the terminal-local sale table (render choice).
+message SaleColumn {
+  string key   = 1;
+  int32  width = 2;
+}
+
+// PayoutCategory maps a payout pick-list key to its server GL account.
+message PayoutCategory {
+  string key        = 1; // supplier | petty_cash | drop_to_safe | owner_draw
+  string gl_account = 2;
+}
+
+message PaymentMethodConfig {
+  string method       = 1; // payment_method enum value
+  string display_name = 2;
+  bool   is_enabled   = 3;
+  int32  sort_order   = 4;
+  string vpa          = 5;
+  string terminal_tid = 6;
+  string merchant_id  = 7;
+}

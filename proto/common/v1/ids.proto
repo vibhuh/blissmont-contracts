@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package blissmont.common.v1;
+
+option go_package = "rachis-core/internal/grpc/common/v1;commonv1";
+
+// Shared identity types for the BlissMont family. Each wraps a single UUID
+// string (uuid_generate_v7 server-side; gofrs/uuid v5 in Go). Wrapping the raw
+// string in a named type keeps a ProductId from being passed where a TerminalId
+// is expected at the contract layer. All are string-backed so they stay
+// wire-compatible with the existing string id fields if adopted later.
+message ProductId  { string value = 1; } // catalog item / product UUID
+message TerminalId { string value = 1; } // POS terminal (device) UUID
+message ShiftId    { string value = 1; } // cashier shift UUID
+message OrderId    { string value = 1; } // sales order UUID
+message CustomerId { string value = 1; } // POS customer UUID (empty = walk-in)

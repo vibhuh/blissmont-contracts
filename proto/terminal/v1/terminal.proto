@@ -1,0 +1,269 @@
+syntax = "proto3";
+package blissmont.terminal.v1;
+// NOTE: go_package adjusted from the original `blissmont-pos/...` header so the
+// engine compiles INSIDE the rachis-core module (single go.mod) and can import
+// rachis-core/internal/money directly. Generated code lands at
+// internal/engine/terminal/v1/ via `--go_opt=module=rachis-core`.
+option go_package = "rachis-core/internal/engine/terminal/v1;terminalv1";
+
+// Single interactive session. UI sends Commands, engine streams Events.
+// On connect the engine immediately pushes CartUpdated + ShiftStateChanged +
+// SyncStatusChanged so the UI hydrates. The engine is the single source of
+// truth; it pushes FULL cart snapshots on every change (cart is tiny — no deltas).
+service TerminalEngine {
+  rpc Session(stream Command) returns (stream Event);
+}
+
+// ── Commands (UI → engine) ────────────────────────────────────────────────────
+//
+// Field-number band convention (family-wide; applies to NEW tags only — existing
+// tags are frozen and MUST NOT be renumbered, since tags are on the wire):
+//   1-99    Core        100-199  Discounts   200-299  Tender
+//   300-399 Returns     400-499  Supervisor  500-599  Future (reserved)
+// The 500-599 Future band is compiler-guarded via `reserved` below so a stray
+// tag in that range is a build error, not a silent land-grab.
+message Command {
+  reserved 500 to 599; // Future band — guard, not just convention
+  oneof cmd {
+    ScanItem            scan_item            = 1;
+    AddLine             add_line             = 2;  // from search, not scan
+    SetQty              set_qty              = 3;
+    SetLineDiscount     set_line_discount    = 4;
+    SetUnitPriceOverride set_price_override  = 5;  // optional per terminal perms
+    RemoveLine          remove_line          = 6;
+    SetOrderDiscount    set_order_discount   = 7;
+    SelectCustomer      select_customer      = 8;
+    HoldCart            hold_cart            = 9;
+    ResumeCart          resume_cart          = 10;
+    AddTender           add_tender           = 11;
+    RemoveTender        remove_tender        = 12;
+    Settle              settle               = 13;
+    VoidCart            void_cart            = 14;
+    OpenShift           open_shift           = 15;
+    CloseShift          close_shift          = 16;
+    RecordCashMovement  record_cash_movement = 17;
+    RefundOrder         refund_order         = 18;
+    // ── Slice 3 (billing-UX contract completion) ──
+    AddMiscCharge       add_misc_charge      = 19; // UX §11
+    RecordPayout        record_payout        = 20; // UX §12
+    StartReturn         start_return         = 21; // UX §9 — load original bill
+    SetReturnLineQty    set_return_line_qty  = 22; // UX §9 — per-line selection
+    CommitReturn        commit_return        = 23; // UX §9 — issue credit note
+    RecallRecent        recall_recent        = 24; // UX §10
+    RecallByReceiptNo   recall_by_receipt_no = 25; // UX §10
+    SearchByCustomer    search_by_customer   = 26; // UX §10
+    ReprintBill         reprint_bill         = 27; // UX §10 — DUPLICATE receipt
+    RunEod              run_eod              = 28; // UX §12 — manual day close
+  }
+}
+
+message ScanItem            { string barcode = 1; }
+message AddLine             { string item_id = 1; string qty_str = 2; }
+message SetQty              { int32 line_no = 1; string qty_str = 2; }
+message SetLineDiscount     { int32 line_no = 1; string discount_str = 2; }
+message SetUnitPriceOverride{ int32 line_no = 1; string price_str = 2; }
+message RemoveLine          { int32 line_no = 1; }
+message SetOrderDiscount    { string discount_str = 1; }
+message SelectCustomer      { string pos_customer_id = 1; } // empty = walk-in
+message HoldCart            { string label = 1; }
+message ResumeCart          { string held_cart_id = 1; }
+message AddTender           { string method = 1; string amount_str = 2; string reference = 3; }
+message RemoveTender        { int32 tender_no = 1; }
+message Settle              {}
+message VoidCart            {}
+message OpenShift           { string cashier_user_id = 1; string opening_cash_str = 2; }
+message CloseShift          { repeated Denomination denominations = 1; string closing_cash_str = 2; }
+message Denomination        { int32 unit_value = 1; int32 count = 2; }
+message RecordCashMovement  { string type = 1; string amount_str = 2; string reason = 3; } // type: "cash_in"|"cash_out"
+message RefundOrder         { string order_id = 1; string reason = 2; repeated RefundLineInput lines = 3; } // order_id = local order id
+message RefundLineInput     { int32 line_no = 1; string qty_str = 2; }
+
+// ── Slice 3 commands ──────────────────────────────────────────────────────────
+// Misc charge (UX §11). Positive only; the engine applies tax from the config's
+// misc_charge_tax_mode, never from the UI.
+message AddMiscCharge       { string description = 1; string amount_str = 2; }
+// Payout (UX §12). category from the pick-list (supplier|petty_cash|drop_to_safe|
+// owner_draw). Engine writes a negative cash_movement + outbox row. Gated by
+// payout_enabled.
+message RecordPayout        { string amount_str = 1; string category = 2; string note = 3; }
+// Returns (UX §9), three-step. StartReturn loads the original bill's lines into a
+// return context; blind only valid if allow_blind_return.
+message StartReturn         { string original_receipt_no = 1; bool blind = 2; }
+// Per-line selection; qty defaults to the sold qty, editable down; restock per
+// restock_default.
+message SetReturnLineQty    { int32 original_line_no = 1; string qty_str = 2; bool restock = 3; }
+// Engine computes the credit-note total + tax reversal from the ORIGINAL lines
+// (never re-keyed; matches the original to the paise).
+message CommitReturn        {}
+// History (UX §10) read queries — all local-first.
+message RecallRecent        { int32 limit = 1; }
+message RecallByReceiptNo   { string receipt_no = 1; }
+message SearchByCustomer    { string query = 1; }
+message ReprintBill         { string receipt_no = 1; } // duplicate, marked "DUPLICATE"
+// EOD (UX §12). Manual confirm; rejected (EodBlocked) if any shift is open.
+message RunEod              {}
+
+// ── Events (engine → UI) ────────────────────────────────────────────────────
+// Same field-number band convention as Command (existing tags frozen; 500-599
+// Future band compiler-guarded via `reserved`).
+message Event {
+  reserved 500 to 599; // Future band — guard, not just convention
+  oneof evt {
+    CartUpdated        cart_updated         = 1;
+    ShiftStateChanged  shift_state_changed  = 2;
+    SyncStatusChanged  sync_status_changed  = 3;
+    OrderSettled       order_settled        = 4;
+    ItemNotFound       item_not_found       = 5;
+    CommandRejected    command_rejected     = 6;
+    RefundSettled      refund_settled       = 7;
+    CashMovementRecorded cash_movement_recorded = 8;
+    // ── Slice 3 (billing-UX contract completion) ──
+    ReturnContextLoaded return_context_loaded = 9;  // UX §9
+    ReturnCommitted     return_committed      = 10; // UX §9
+    PayoutRecorded      payout_recorded       = 11; // UX §12
+    HistoryResults      history_results       = 12; // UX §10
+    BillDetail          bill_detail           = 13; // UX §10 recall / reprint source
+    EodPrompt           eod_prompt            = 14; // UX §12 auto-prompt at cutoff
+    EodBlocked          eod_blocked           = 15; // UX §12 EOD with shifts open
+    EodResult           eod_result            = 16; // UX §12
+    AuthRequired        auth_required         = 17; // supervisor gate
+  }
+}
+
+message CartUpdated {
+  repeated CartLine lines        = 1;
+  string   order_discount_str    = 2;
+  string   subtotal_str          = 3;
+  string   tax_total_str         = 4;
+  string   total_str             = 5;
+  repeated Tender tenders        = 6;
+  string   amount_tendered_str   = 7;
+  string   balance_due_str       = 8;
+  string   change_due_str        = 9;
+  string   customer_label        = 10; // "Walk-in" or named
+  string   status                = 11; // "empty" | "active" | "held" | "tendering"
+}
+
+message CartLine {
+  int32  line_no          = 1;
+  string item_id          = 2;
+  string sku              = 3;
+  string description      = 4;
+  string qty_str          = 5;
+  string unit_price_str   = 6;
+  bool   price_overridden = 7;
+  string discount_str     = 8;
+  string tax_rate_str     = 9;
+  string tax_amount_str   = 10;
+  string line_total_str   = 11;
+}
+
+message Tender { int32 tender_no = 1; string method = 2; string amount_str = 3; string reference = 4; }
+
+message ShiftStateChanged {
+  string shift_id   = 1;
+  string status     = 2; // "none" | "open" | "closed"
+  string opened_at  = 3;
+  string cashier    = 4;
+}
+
+message SyncStatusChanged {
+  bool   online        = 1;
+  int32  pending       = 2; // outbox depth
+  string last_sync_at  = 3; // RFC3339
+}
+
+message OrderSettled {
+  string receipt_no     = 1;
+  bool   provisional    = 2; // true if settled offline; canonical comes on sync
+  string total_str      = 3;
+  string tax_total_str  = 4;
+  string settled_at     = 5; // RFC3339
+}
+
+message ItemNotFound    { string barcode = 1; }
+message CommandRejected { string code = 1; string message = 2; } // e.g. discount over max
+
+message RefundSettled {
+  string refund_no   = 1;
+  bool   provisional = 2; // true if recorded offline; canonical refund_number comes on sync
+  string total_str   = 3;
+  string settled_at  = 4; // RFC3339
+}
+
+message CashMovementRecorded {
+  string movement_id = 1; // provisional (local) id offline; server id on sync
+  string type        = 2; // "cash_in" | "cash_out"
+  string amount_str  = 3;
+}
+
+// ── Slice 3 events ────────────────────────────────────────────────────────────
+
+// ReturnContextLoaded carries the original bill's returnable lines (with
+// remaining-refundable qty per line) after StartReturn.
+message ReturnContextLoaded {
+  repeated ReturnLine lines = 1;
+  string original_receipt_no = 2;
+}
+
+message ReturnLine {
+  int32  original_line_no   = 1;
+  string item_id            = 2;
+  string description        = 3;
+  string sold_qty_str       = 4;
+  string refundable_qty_str = 5; // sold − already-refunded
+  string selected_qty_str   = 6; // current selection (defaults to refundable)
+  string unit_price_str     = 7;
+  string line_total_str     = 8; // original line total (net + tax)
+  string tax_amount_str     = 9; // original line tax
+  bool   restock            = 10;
+}
+
+message ReturnCommitted {
+  string credit_note_no   = 1;
+  bool   provisional      = 2; // true offline; canonical refund number on sync
+  string total_str        = 3;
+  string tax_reversed_str = 4; // equals the original to the paise
+}
+
+message PayoutRecorded {
+  string payout_id  = 1; // provisional (local) id offline; server id on sync
+  string amount_str = 2;
+  string category   = 3;
+}
+
+message HistoryResults { repeated BillSummary bills = 1; }
+
+message BillSummary {
+  string receipt_no     = 1; // canonical if synced, else provisional
+  string order_id       = 2; // local order id
+  string status         = 3;
+  string total_str      = 4;
+  string settled_at     = 5; // RFC3339
+  string customer_label = 6;
+  bool   provisional    = 7; // not yet reconciled to a canonical receipt
+}
+
+// BillDetail is the view-only recall / reprint source for one bill.
+message BillDetail {
+  string receipt_no       = 1;
+  string order_id         = 2;
+  string status           = 3;
+  string subtotal_str     = 4;
+  string order_discount_str = 5;
+  string tax_total_str    = 6;
+  string total_str        = 7;
+  string settled_at       = 8;
+  string customer_label   = 9;
+  bool   provisional      = 10;
+  repeated CartLine lines = 11;
+  repeated Tender payments = 12;
+}
+
+message EodPrompt   { string cutoff_time = 1; } // emitted at eod_cutoff_time
+message EodBlocked  { repeated string open_shift_ids = 1; } // EOD attempted with shifts open
+message EodResult   { string batch_id = 1; bool provisional = 2; } // canonical on sync
+
+// AuthRequired is the supervisor gate (returns, variance, over-cap discount,
+// price override) emitted per the relevant config.
+message AuthRequired { string action = 1; string reason = 2; }
