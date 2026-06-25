@@ -4,7 +4,7 @@
 
 BUF_VERSION := 1.47.2
 
-.PHONY: help build lint breaking check
+.PHONY: help build lint breaking guard check
 
 help: ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -25,5 +25,8 @@ breaking: ## Wire-compat gate: compare working tree against the latest release t
 		buf breaking --against ".git#tag=$$latest"; \
 	fi
 
-check: build lint breaking ## Run the full local gate (build + lint + breaking).
+guard: ## Dependency-direction guard: terminal/v1 may import common/v1, never pos/v1.
+	@./scripts/check-import-direction.sh
+
+check: build lint guard breaking ## Run the full local gate (build + lint + guard + breaking).
 	@echo "✓ contract checks passed"

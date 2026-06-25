@@ -127,6 +127,9 @@ message Event {
     EodBlocked          eod_blocked           = 15; // UX §12 EOD with shifts open
     EodResult           eod_result            = 16; // UX §12
     AuthRequired        auth_required         = 17; // supervisor gate
+    // ── Minor v1.1.0 (config hydration over the Session stream) ──
+    ConfigUpdated       config_updated        = 18; // device-config snapshot (on
+                                                    // connect / reconnect / change)
   }
 }
 
@@ -267,3 +270,107 @@ message EodResult   { string batch_id = 1; bool provisional = 2; } // canonical 
 // AuthRequired is the supervisor gate (returns, variance, over-cap discount,
 // price override) emitted per the relevant config.
 message AuthRequired { string action = 1; string reason = 2; }
+
+// ── Config hydration (Minor v1.1.0) ───────────────────────────────────────────
+//
+// ConfigUpdated carries the terminal's resolved DEVICE config over the existing
+// Session stream, exactly like CartUpdated / ShiftStateChanged / SyncStatusChanged:
+// the engine pushes it on connect, on reconnect, and whenever the resolved config
+// changes. No polling, no secondary RPC. The UI hydrates its ConfigService from it.
+//
+// TerminalConfig is device-oriented, NOT a re-export of pos.v1.TerminalConfigSnapshot.
+// The engine OWNS the translation from the server-domain snapshot into this
+// terminal-domain message (see README): it forwards only what a terminal needs to
+// render and gate behaviour, and drops every server-internal field — GL accounts,
+// server-fiscal tax-mode flags, posting concerns — at that boundary. terminal.proto
+// therefore does NOT (and must not) import pos.proto.
+message ConfigUpdated {
+  TerminalConfig config = 1;
+}
+
+// TerminalConfig is the device-relevant operating surface (the UX-spec config the
+// terminal renders/gates on). Every field here answers "what does the terminal need
+// to know?", never "how does the server store or compute it". Field tags start at 1
+// (new message); the same freeze/additive rules apply to future edits.
+message TerminalConfig {
+  // ── Store identity (shown on screen / printed on the receipt) ──
+  string store_code        = 1;
+  string store_name        = 2;
+  string gstin             = 3;
+  string gst_category      = 4;
+  string receipt_prefix    = 5;
+  string currency_code     = 6;
+  string currency_symbol   = 7;
+  int32  currency_decimals = 8;
+  string timezone          = 9;  // IANA name, e.g. "Asia/Kolkata"
+  string eod_cutoff_time   = 10; // "HH:MM:SS"
+
+  // ── Discounts (caps the UI displays; the engine still enforces them) ──
+  bool   allow_discounts        = 11;
+  bool   line_discount_enabled  = 12;
+  string max_line_discount_pct  = 13; // decimal string e.g. "10.00"
+  bool   order_discount_enabled = 14;
+  string max_order_discount_pct = 15; // decimal string e.g. "10.00"
+  string discount_entry_mode    = 16; // "percent" | "amount" (display only)
+  bool   bill_discount_on_receipt = 17;
+
+  // ── Entry / line behaviour (UX §7) ──
+  string entry_quantity = 18; // "prompt" | "default_one"
+  string entry_price    = 19; // "prompt" | "from_catalog"
+  string entry_discount = 20; // "prompt" | "none"
+  string discount_input = 21; // "percent" | "amount" | "both"
+
+  // ── Catalog (UX §4) — terminal-local render choices ──
+  string catalog_mode             = 22; // "search" | "browse"
+  repeated SaleColumn sale_columns = 23; // ordered sale-table columns (render)
+
+  // ── Tender (UX §6) ──
+  string tender_complete_mode = 24; // "auto" | "confirm"
+  string default_receipt      = 25; // "print" | "no_print"
+  string upi_capture_mode     = 26; // "manual" | "dynamic_qr"
+
+  // ── Behaviour (UX §8) ──
+  string same_item_scan     = 27; // "separate" | "merge" | "block"
+  bool   allow_edit_bill    = 28;
+  bool   allow_returns      = 29;
+  bool   roundoff           = 30;
+  string default_price_level = 31;
+  bool   message_after_save = 32;
+  bool   promotions_enabled = 33;
+  bool   loyalty_enabled    = 34;
+
+  // ── Returns (UX §9) ──
+  bool   allow_blind_return   = 35;
+  string refund_tender_mode   = 36; // "original" | "cash" | "both"
+  string return_requires_auth = 37; // "always" | "config" | "never"
+  bool   restock_default      = 38;
+  bool   allow_partial_return = 39;
+
+  // ── Cash control (UX §12) ──
+  string shift_count_mode      = 40; // "blind" | "open"
+  string shift_count_entry     = 41; // "denomination" | "total"
+  string variance_tolerance    = 42; // decimal string
+  bool   variance_requires_auth = 43;
+  bool   payout_enabled        = 44;
+  // Payout pick-list KEYS only (supplier | petty_cash | drop_to_safe | owner_draw).
+  // The server-side category→GL-account mapping (pos.v1.PayoutCategory.gl_account)
+  // is a posting concern and is dropped at the engine boundary — it never reaches
+  // the terminal.
+  repeated string payout_categories = 45;
+  string held_cart_expiry      = 46; // duration string e.g. "24h"
+
+  // ── Misc charges (UX §11) ──
+  string misc_charge_tax_mode = 47; // "taxable" | "exempt"
+
+  // Server checkpoint this config was resolved at (RFC3339). Lets the UI show
+  // config freshness; it is NOT a server cursor the terminal acts on.
+  string fetched_at = 48;
+}
+
+// SaleColumn is one column of the terminal-local sale table (render choice). This
+// is the terminal-domain twin of the server's column config — defined here so
+// TerminalConfig stays self-contained and terminal.proto never imports pos.proto.
+message SaleColumn {
+  string key   = 1;
+  int32  width = 2;
+}

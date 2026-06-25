@@ -29,6 +29,16 @@ their own `Money` / `ProductId` / `Timestamp` and then drift (e.g. one money as 
 another as decimal-string → 1-paise bugs at the contract layer). **Money is a decimal string,
 family-wide** — matching the exact-decimal engine, never a float, never an integer minor unit.
 
+### The terminal contract is device-oriented
+
+The terminal contract is device-oriented, not server-oriented. Every message represents what a terminal needs to know, not how the server stores or computes it. The engine is responsible for translating server-domain models into terminal-domain models.
+
+Concretely: `terminal/v1` may import `common/v1`, but it MUST NOT import `pos/v1`. Server-domain
+types (e.g. `pos.v1.TerminalConfigSnapshot`, with its GL accounts and posting concerns) never
+cross onto the device wire — the engine maps them into device-domain twins (e.g.
+`terminal.v1.TerminalConfig`). This direction is enforced in CI by the dependency-direction guard
+(`make guard`), not just by convention.
+
 > Adoption note: as of v1.0.0 the `common/v1` types are the canonical *definitions*. The
 > existing `pos`/`terminal` contracts still carry their amounts/instants as bare strings.
 > Migrating those fields to the `common/v1` message types is an additive, wire-considered

@@ -34,6 +34,12 @@ jobs:
       - name: buf lint
         run: buf lint
 
+      # Dependency-direction guard: terminal/v1 may import common/v1, never pos/v1.
+      # buf has no native import-direction rule, so this is a real failing CI check
+      # (proven to reject a deliberate pos import), not a convention.
+      - name: dependency-direction guard
+        run: ./scripts/check-import-direction.sh
+
       # The wire-compat release gate: compare HEAD against the latest released tag.
       # On the very first tag (no prior release) there is nothing to compare against.
       - name: buf breaking (vs latest release tag)
