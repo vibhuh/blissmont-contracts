@@ -94,7 +94,21 @@ message StartReturn         { string original_receipt_no = 1; bool blind = 2; }
 message SetReturnLineQty    { int32 original_line_no = 1; string qty_str = 2; bool restock = 3; }
 // Engine computes the credit-note total + tax reversal from the ORIGINAL lines
 // (never re-keyed; matches the original to the paise).
-message CommitReturn        {}
+message CommitReturn        {
+  // refund_method — the cashier's CHOICE of refund tender for the WHOLE refund, used
+  // only when refund_tender_mode = "both" (the terminal lets the cashier pick). It is
+  // a choice keyword, NOT a literal method, so the terminal need not know the original
+  // tender:
+  //   "original" — refund to the bill's original payment method (engine resolves it)
+  //   "cash"     — refund as cash
+  // Empty → the engine resolves from refund_tender_mode as before (original → the
+  // original payment method; cash/unset → cash); under "both", empty is rejected
+  // (REFUND_METHOD_REQUIRED) rather than defaulted. Additive in v1.3.0 — a new optional
+  // field on a previously-empty message, wire-compatible with v1.2.0 (which sent no
+  // field). Not a split: a single tender funds the whole credit note (one
+  // RefundPayment), matching the engine's storage.
+  string refund_method = 1;
+}
 // History (UX §10) read queries — all local-first.
 message RecallRecent        { int32 limit = 1; }
 message RecallByReceiptNo   { string receipt_no = 1; }
