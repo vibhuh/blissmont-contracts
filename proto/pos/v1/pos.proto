@@ -348,4 +348,8 @@ message PaymentMethodConfig {
   string vpa          = 5;
   string terminal_tid = 6;
   string merchant_id  = 7;
+  // Device-surface fields (additive v1.2.0). These cross to the terminal via the
+  // engine; the secrets above (vpa/terminal_tid/merchant_id) and gl_account do not.
+  string hotkey         = 8; // explicit cashier hotkey (device render; survives localization)
+  string reference_mode = 9; // "none" | "optional" | "required" (device reference-capture gate)
 }

@@ -328,6 +328,13 @@ message TerminalConfig {
   string tender_complete_mode = 24; // "auto" | "confirm"
   string default_receipt      = 25; // "print" | "no_print"
   string upi_capture_mode     = 26; // "manual" | "dynamic_qr"
+  // Enabled payment methods + their device render/gate config (hotkeys, display
+  // order, reference policy). Tender-domain counterpart to payout_categories —
+  // same treatment (terminal-domain twin message; server secrets dropped at the
+  // engine boundary). Additive in v1.2.0: tag 49 is the next free number after
+  // the v1.1.0 block (1–48); field tags are frozen, so an addition always takes
+  // the next free number, never a Tender-numbered slot.
+  repeated PaymentMethod payment_methods = 49;
 
   // ── Behaviour (UX §8) ──
   string same_item_scan     = 27; // "separate" | "merge" | "block"
@@ -373,4 +380,26 @@ message TerminalConfig {
 message SaleColumn {
   string key   = 1;
   int32  width = 2;
+}
+
+// PaymentMethod is one enabled tender the terminal renders in the tender panel:
+// its stable id, cashier-facing label, explicit hotkey, display order, enabled
+// flag, and reference-capture policy. Terminal-domain twin of the server's
+// payment config (pos.v1.PaymentMethodConfig) — defined here so TerminalConfig
+// stays self-contained and terminal.proto never imports pos.proto. The
+// server-internal fields (GL account id, VPA/TID/merchant secrets,
+// payment_mode_id) are dropped at the engine boundary and never appear here.
+message PaymentMethod {
+  string method         = 1;  // stable id: "cash" | "upi" | "card" | ...
+  string display_name   = 2;  // localizable; shown to cashier
+  string hotkey         = 3;  // EXPLICIT (not derived from display_name — survives
+                              //   localization + first-letter collisions like Cash/Card)
+  int32  sort_order     = 4;
+  bool   enabled        = 5;
+  // reference_mode — per-method reference-capture policy, decided per store in
+  // configuration (never hardcoded in the shell):
+  //   "none"     — no reference field shown (e.g. cash).
+  //   "optional" — field shown; tender may complete with it blank (recorded if entered).
+  //   "required" — field shown; tender CANNOT complete until a reference is entered.
+  string reference_mode = 6;
 }
