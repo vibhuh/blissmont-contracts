@@ -84,8 +84,10 @@ message RefundLineInput     { int32 line_no = 1; string qty_str = 2; }
 // misc_charge_tax_mode, never from the UI.
 message AddMiscCharge       { string description = 1; string amount_str = 2; }
 // Payout (UX §12). category from the pick-list (supplier|petty_cash|drop_to_safe|
-// owner_draw). Engine writes a negative cash_movement + outbox row. Gated by
-// payout_enabled.
+// owner_draw). Engine writes a cash_movement of type "payout" (amount POSITIVE;
+// direction is carried by the type, never a stored sign — ADR-0008) + outbox row.
+// The server resolves category → GL account and posts Dr <category> / Cr <cash>.
+// Gated by payout_enabled.
 message RecordPayout        { string amount_str = 1; string category = 2; string note = 3; }
 // Returns (UX §9), three-step. StartReturn loads the original bill's lines into a
 // return context; blind only valid if allow_blind_return.
