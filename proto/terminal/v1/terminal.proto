@@ -54,6 +54,7 @@ message Command {
     SearchByCustomer    search_by_customer   = 26; // UX §10
     ReprintBill         reprint_bill         = 27; // UX §10 — DUPLICATE receipt
     RunEod              run_eod              = 28; // UX §12 — manual day close
+    ListHeldCarts       list_held_carts      = 29; // UX §10 — discover active holds
   }
 }
 
@@ -116,6 +117,10 @@ message SearchByCustomer    { string query = 1; }
 message ReprintBill         { string receipt_no = 1; } // duplicate, marked "DUPLICATE"
 // EOD (UX §12). Manual confirm; rejected (EodBlocked) if any shift is open.
 message RunEod              {}
+// Suspend/resume (UX §10). Lists the terminal's active held carts so the cashier
+// can discover holds and learn their ids on entering resume context (engine replies
+// HeldCartsList). Drafts are terminal-local — never synced.
+message ListHeldCarts       {}
 
 // ── Events (engine → UI) ────────────────────────────────────────────────────
 // Same field-number band convention as Command (existing tags frozen; 500-599
@@ -144,6 +149,9 @@ message Event {
     // ── Minor v1.1.0 (config hydration over the Session stream) ──
     ConfigUpdated       config_updated        = 18; // device-config snapshot (on
                                                     // connect / reconnect / change)
+    // ── Minor v1.4.0 (suspend/resume discovery — UX §10) ──
+    CartHeld            cart_held             = 19; // echoes the minted held-cart id
+    HeldCartsList       held_carts_list       = 20; // reply to ListHeldCarts
   }
 }
 
@@ -284,6 +292,25 @@ message EodResult   { string batch_id = 1; bool provisional = 2; } // canonical 
 // AuthRequired is the supervisor gate (returns, variance, over-cap discount,
 // price override) emitted per the relevant config.
 message AuthRequired { string action = 1; string reason = 2; }
+
+// ── Suspend/resume events (Minor v1.4.0 — UX §10) ─────────────────────────────
+//
+// CartHeld echoes the minted held-cart id back after HoldCart, so the cashier/shell
+// can surface a hold confirmation (today the id was lost). Emitted alongside the
+// post-hold empty CartUpdated (the next-customer fresh cart).
+message CartHeld { string held_cart_id = 1; string label = 2; }
+
+// HeldCartsList is the reply to ListHeldCarts: the terminal-local active holds the
+// resume panel renders. Mirrors the HistoryResults / BillSummary shape.
+message HeldCartsList { repeated HeldCartSummary held_carts = 1; }
+
+message HeldCartSummary {
+  string held_cart_id = 1;
+  string label        = 2;
+  string held_at      = 3; // RFC3339
+  int32  line_count   = 4; // what the panel lists
+  string total_str    = 5;
+}
 
 // ── Config hydration (Minor v1.1.0) ───────────────────────────────────────────
 //
