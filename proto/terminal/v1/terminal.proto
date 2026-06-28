@@ -169,6 +169,20 @@ message CartUpdated {
   string   change_due_str        = 9;
   string   customer_label        = 10; // "Walk-in" or named
   string   status                = 11; // "empty" | "active" | "held" | "tendering"
+  // ── Fiscal projection (sale-screen totals block) ──────────────────────────────
+  // The accounting layer already computes taxable value, the GST split (by place of
+  // supply) and round-off; these PROJECT that to the terminal so the totals block
+  // renders the engine's exact decimal strings verbatim (no client-side tax math).
+  // tax_interstate selects which pair the UI shows: false → CGST/SGST (intra-state),
+  // true → IGST (inter-state). Additive in v1.5.0; existing tags 1–11 are frozen.
+  string   taxable_value_str     = 12; // subtotal net of all discounts, before tax
+  string   cgst_str              = 13; // intra-state half (empty when tax_interstate)
+  string   sgst_str              = 14; // intra-state half (empty when tax_interstate)
+  string   igst_str              = 15; // inter-state (empty when intra-state)
+  string   round_off_str         = 16; // signed rounding adjustment to the payable
+  bool     tax_interstate        = 17; // place-of-supply: true → IGST, false → CGST/SGST
+  int32    item_count            = 18; // distinct lines (cashier cross-check)
+  string   unit_count_str        = 19; // summed quantity (cashier cross-check)
 }
 
 message CartLine {
@@ -183,6 +197,16 @@ message CartLine {
   string tax_rate_str     = 9;
   string tax_amount_str   = 10;
   string line_total_str   = 11;
+  // HSN/SAC code for the item's name subline on the sale screen (name + HSN·GST%).
+  // Projection only — the catalog already carries it. Additive in v1.5.0.
+  string hsn              = 12;
+  // discount_eligible — whether this line participates in BILL-LEVEL discount
+  // apportionment (the engine's Hamilton base is the sum of eligible lines only, NOT
+  // all lines). Defaults by line type (inventory/service eligible; previous-balance,
+  // advance, gift-card sale, deposit not), resolved engine-side. Carried here so the
+  // bill-discount panel can show the eligible base honestly and so the property is
+  // forward-closed before the non-inventory line types exist. Additive in v1.5.0.
+  bool   discount_eligible = 13;
 }
 
 message Tender { int32 tender_no = 1; string method = 2; string amount_str = 3; string reference = 4; }
