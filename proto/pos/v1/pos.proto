@@ -326,6 +326,13 @@ message TerminalConfigSnapshot {
   // Misc charges (UX §11).
   string misc_charge_tax_mode  = 55; // "taxable" | "exempt"
   string misc_charge_tax_rate  = 56; // decimal string e.g. "0.18"
+
+  // Receipt rendering (engine-internal print choice — NOT shown on the device).
+  // How the printed ESC/POS receipt renders the rupee glyph: most thermal printers
+  // have no code page for ₹ (U+20B9), so raw UTF-8 ₹ prints as garbage. The screen
+  // keeps ₹ (currency_symbol above); this governs the printout only. Empty → the
+  // engine default (bitmap).
+  string receipt_currency_symbol_strategy = 57; // "bitmap" | "ascii" | "udc"
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice).
