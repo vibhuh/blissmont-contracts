@@ -183,6 +183,12 @@ message CartUpdated {
   bool     tax_interstate        = 17; // place-of-supply: true → IGST, false → CGST/SGST
   int32    item_count            = 18; // distinct lines (cashier cross-check)
   string   unit_count_str        = 19; // summed quantity (cashier cross-check)
+  // The receipt number the NEXT settle on this terminal will assign (provisional
+  // format, e.g. "BLISSP000124") — the bill the cashier is currently ringing up. The
+  // engine peeks the provisional sequence WITHOUT consuming it and stamps it on every
+  // cart snapshot so the top bar shows the live bill #. Empty until the engine projects
+  // it. Additive in v1.6.0; tags 1–19 are frozen.
+  string   next_receipt_no       = 20;
 }
 
 message CartLine {
@@ -230,6 +236,12 @@ message OrderSettled {
   string total_str      = 3;
   string tax_total_str  = 4;
   string settled_at     = 5; // RFC3339
+  // Tender taken for THIS bill, carried on the settle event so the post-settle
+  // confirmation shows the real Received + Change from immutable settle-time values —
+  // never from the live cart summary, which the engine resets right after settling.
+  // received_str = Σ tenders; change_str = max(0, received − total). Additive in v1.6.0.
+  string received_str   = 6;
+  string change_str     = 7;
 }
 
 message ItemNotFound    { string barcode = 1; }
@@ -364,6 +376,11 @@ message TerminalConfig {
   string store_code        = 1;
   string store_name        = 2;
   string gstin             = 3;
+  // register_name — this terminal's counter/register label for the top bar identity
+  // ("Counter 2", "Register A"). Device-static identity, so it rides the config like
+  // store_name. Tag 50 is the next free number (1–49 frozen); a field addition always
+  // takes the next free tag, never a store-band slot. Additive in v1.6.0.
+  string register_name     = 50;
   string gst_category      = 4;
   string receipt_prefix    = 5;
   string currency_code     = 6;
