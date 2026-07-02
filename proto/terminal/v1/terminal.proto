@@ -154,6 +154,8 @@ message Event {
     // ── Minor v1.4.0 (suspend/resume discovery — UX §10) ──
     CartHeld            cart_held             = 19; // echoes the minted held-cart id
     HeldCartsList       held_carts_list       = 20; // reply to ListHeldCarts
+    // ── Minor v1.8.0 (shift-close variance reveal — UX §12 blind count) ──
+    ShiftClosed         shift_closed          = 21; // settle-time close figures (variance)
   }
 }
 
@@ -222,6 +224,19 @@ message ShiftStateChanged {
   string status     = 2; // "none" | "open" | "closed"
   string opened_at  = 3;
   string cashier    = 4;
+}
+
+// ShiftClosed carries the settled shift-close figures for the blind-count reveal (UX §12):
+// the counted cash, the opening float it is measured against, and the variance (counted −
+// opening). Emitted on a successful CloseShift, alongside ShiftStateChanged(closed). The
+// variance is revealed to the cashier only AFTER commit — blind-count integrity. Additive in
+// v1.8.0.
+message ShiftClosed {
+  string shift_id          = 1;
+  string opening_float_str = 2;
+  string counted_cash_str  = 3;
+  string variance_str      = 4; // counted − opening (may be negative)
+  string closed_at         = 5; // RFC3339
 }
 
 message SyncStatusChanged {
