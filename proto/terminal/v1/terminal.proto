@@ -227,16 +227,28 @@ message ShiftStateChanged {
 }
 
 // ShiftClosed carries the settled shift-close figures for the blind-count reveal (UX §12):
-// the counted cash, the opening float it is measured against, and the variance (counted −
-// opening). Emitted on a successful CloseShift, alongside ShiftStateChanged(closed). The
-// variance is revealed to the cashier only AFTER commit — blind-count integrity. Additive in
-// v1.8.0.
+// the counted cash and the FULL drawer reconciliation it is measured against — expected cash
+// and the components that make it up — with variance = counted − expected (the same
+// reconciliation the Z-report prints). Emitted on a successful CloseShift, alongside
+// ShiftStateChanged(closed). The figures are revealed to the cashier only AFTER commit —
+// blind-count integrity.
+//
+// Fields 1–5 additive in v1.8.0; the reconciliation breakdown (6–11) additive in v1.9.0.
+// NOTE: variance_str changed meaning in v1.9.0 from (counted − opening) to (counted −
+// expected) — the earlier definition ignored the shift's cash sales and movements and was a
+// bug (a short till read as over). Fields 1–5 remain wire-compatible.
 message ShiftClosed {
   string shift_id          = 1;
   string opening_float_str = 2;
   string counted_cash_str  = 3;
-  string variance_str      = 4; // counted − opening (may be negative)
+  string variance_str      = 4; // counted − expected (negative = short, positive = over)
   string closed_at         = 5; // RFC3339
+  string expected_cash_str = 6; // opening + cash sales + cash-in − cash-out − payouts − refunds
+  string cash_sales_str    = 7; // cash-tender sales during the shift
+  string cash_in_str       = 8; // paid-in cash movements
+  string cash_out_str      = 9; // paid-out cash movements
+  string payouts_str       = 10; // supplier/expense payouts from the drawer
+  string refunds_str       = 11; // refunds paid from the drawer
 }
 
 message SyncStatusChanged {
