@@ -80,6 +80,7 @@ message OpenShiftRequest {
   string cashier_user_id  = 2; // UUID
   string opening_cash_str = 3; // decimal string e.g. "5000.00"
   string client_ref       = 4; // device-local idempotency key; replay returns the same shift
+  string shift_master_id  = 5; // SCHEDULED-mode classification (UUID); empty in SINGLE/MULTIPLE (v1.10.0)
 }
 
 message CloseShiftRequest {
@@ -333,6 +334,18 @@ message TerminalConfigSnapshot {
   // keeps ₹ (currency_symbol above); this governs the printout only. Empty → the
   // engine default (bitmap).
   string receipt_currency_symbol_strategy = 57; // "bitmap" | "ascii" | "udc"
+
+  // Shift management (register-session modes). Sourced from pos_company_config +
+  // shift_master. Mode NULL server-side resolves to "multiple" (today's behaviour).
+  // The require_auth_* policy gates SCHEDULED-mode session-open; shift_masters is
+  // empty unless SCHEDULED. Classification only — cash accountability is identical
+  // across all modes.
+  string shift_management_mode         = 58; // "single" | "multiple" | "scheduled"
+  bool   require_auth_before_start     = 59;
+  bool   require_auth_after_end        = 60;
+  bool   require_auth_different_shift  = 61;
+  bool   require_auth_reopen_completed = 62;
+  repeated ShiftMaster shift_masters   = 63; // ShiftMaster defined at end of file
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice).
@@ -359,4 +372,19 @@ message PaymentMethodConfig {
   // engine; the secrets above (vpa/terminal_tid/merchant_id) and gl_account do not.
   string hotkey         = 8; // explicit cashier hotkey (device render; survives localization)
   string reference_mode = 9; // "none" | "optional" | "required" (device reference-capture gate)
+}
+
+// ── Shift management (v1.10.0) ────────────────────────────────────────────────
+// Appended at end-of-file so message indices stay append-only (minimal pb.go diff).
+
+// ShiftMaster is one company shift definition (Morning 08:00–16:00, …) carried to
+// the terminal for SCHEDULED mode. Twin of terminal.v1.ShiftMaster.
+message ShiftMaster {
+  string id         = 1;
+  string code       = 2; // e.g. "MORNING"
+  string name       = 3; // e.g. "Morning"
+  string start_time = 4; // "08:00:00"
+  string end_time   = 5; // "16:00:00"
+  int32  sequence   = 6;
+  bool   is_active  = 7;
 }

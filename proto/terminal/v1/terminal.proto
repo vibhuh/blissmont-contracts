@@ -72,9 +72,16 @@ message AddTender           { string method = 1; string amount_str = 2; string r
 message RemoveTender        { int32 tender_no = 1; }
 message Settle              {}
 message VoidCart            {}
-message OpenShift           { string cashier_user_id = 1; string opening_cash_str = 2; }
-message CloseShift          { repeated Denomination denominations = 1; string closing_cash_str = 2; }
+// OpenShift/CloseShift gained supervisor-auth completion + shift classification in
+// v1.10.0. OpenShift.shift_master_id tags a SCHEDULED-mode session (empty = none);
+// supervisor_auth (on either) is present ONLY on a command RE-ISSUED after a
+// supervisor approved a gated action — the engine then skips the gate and records
+// the reason. Field tags 1–2 remain wire-compatible.
+message OpenShift           { string cashier_user_id = 1; string opening_cash_str = 2; string shift_master_id = 3; SupervisorAuth supervisor_auth = 4; }
+message CloseShift          { repeated Denomination denominations = 1; string closing_cash_str = 2; SupervisorAuth supervisor_auth = 3; }
 message Denomination        { int32 unit_value = 1; int32 count = 2; }
+// SupervisorAuth (defined at end of file, v1.10.0) is the completion half of the
+// AuthRequired signal — see OpenShift.supervisor_auth / CloseShift.supervisor_auth.
 message RecordCashMovement  { string type = 1; string amount_str = 2; string reason = 3; } // type: "cash_in"|"cash_out"
 message RefundOrder         { string order_id = 1; string reason = 2; repeated RefundLineInput lines = 3; } // order_id = local order id
 message RefundLineInput     { int32 line_no = 1; string qty_str = 2; }
@@ -483,6 +490,19 @@ message TerminalConfig {
   // Server checkpoint this config was resolved at (RFC3339). Lets the UI show
   // config freshness; it is NOT a server cursor the terminal acts on.
   string fetched_at = 48;
+
+  // ── Shift management (v1.10.0) ──
+  // Mode drives which Begin-Register screen the shell shows; the require_auth_*
+  // policy gates SCHEDULED-mode session-open (routed through AuthRequired when
+  // violated, completed via SupervisorAuth). shift_masters is the company's shift
+  // definitions (empty unless SCHEDULED). Cash accountability is identical across
+  // all three modes — this layer only classifies a session.
+  string shift_management_mode         = 51; // "single" | "multiple" | "scheduled"
+  bool   require_auth_before_start     = 52;
+  bool   require_auth_after_end        = 53;
+  bool   require_auth_different_shift  = 54;
+  bool   require_auth_reopen_completed = 55;
+  repeated ShiftMaster shift_masters   = 56; // ShiftMaster defined at end of file
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice). This
@@ -513,4 +533,27 @@ message PaymentMethod {
   //   "optional" — field shown; tender may complete with it blank (recorded if entered).
   //   "required" — field shown; tender CANNOT complete until a reference is entered.
   string reference_mode = 6;
+}
+
+// ── Shift management (v1.10.0) ────────────────────────────────────────────────
+// Appended at end-of-file so message indices stay append-only (keeps the generated
+// pb.go diff minimal — protoc-gen-go hardcodes message indices).
+
+// SupervisorAuth attests a supervisor approved a gated action (over-tolerance
+// variance close, or a SCHEDULED-mode policy-violating open). The PIN is verified
+// device-side; only this audit trail crosses the wire. Completion half of the
+// AuthRequired{action,reason} signal.
+message SupervisorAuth { string reason = 1; string authorized_by = 2; } // authorized_by = supervisor user id
+
+// ShiftMaster is one company shift definition (Morning 08:00–16:00, …) delivered to
+// the terminal for SCHEDULED mode. Terminal-domain twin of pos.v1.ShiftMaster —
+// classification only, never a cash-accounting entity.
+message ShiftMaster {
+  string id         = 1;
+  string code       = 2; // e.g. "MORNING"
+  string name       = 3; // e.g. "Morning"
+  string start_time = 4; // "08:00" (HH:MM or HH:MM:SS)
+  string end_time   = 5; // "16:00"
+  int32  sequence   = 6;
+  bool   is_active  = 7;
 }
