@@ -120,6 +120,10 @@ message ProductCacheItem {
   bool     is_active         = 8;
   string   updated_at        = 9;  // RFC3339
   bytes    thumbnail_webp    = 10; // optional; omit if nil
+  // Tax-inclusive MRP resolved server-side as item_variant.mrp → items.mrp (variant
+  // wins when present, else item; empty when neither carries one). Drives the
+  // customer-facing "You Save" calc device-side. Additive in v1.11.0; tags 1–10 frozen.
+  string   mrp_str           = 11; // decimal, tax-inclusive; empty if none
 }
 
 // ── Orders ────────────────────────────────────────────────────────────────────

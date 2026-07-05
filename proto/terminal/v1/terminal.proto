@@ -198,6 +198,13 @@ message CartUpdated {
   // cart snapshot so the top bar shows the live bill #. Empty until the engine projects
   // it. Additive in v1.6.0; tags 1–19 are frozen.
   string   next_receipt_no       = 20;
+  // "You Save" — the customer-facing savings on this cart = Σ max(0, MRP×qty −
+  // post-tax line gross), projected from the SINGLE snapshot computation (never
+  // recomputed by the receipt or the QML). MRP is tax-inclusive, so this compares
+  // inclusive-to-inclusive against the post-tax gross. Empty or "0.00" when there is
+  // no saving; presentation layers zero-suppress (no "You Save ₹0.00" ever). Additive
+  // in v1.11.0; tags 1–20 are frozen.
+  string   you_save_str          = 21;
 }
 
 message CartLine {
