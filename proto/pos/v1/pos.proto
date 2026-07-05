@@ -180,6 +180,12 @@ message SubmitRefundRequest {
 message RefundLine {
   string order_line_id = 1;
   int32  quantity      = 2;
+  // Inverted restock flag: false (the proto3 zero value) = return the goods to
+  // stock at the ORIGINAL sale cost (Phase 1 D4), matching the DB default
+  // (pos_refund_lines.restock DEFAULT true) and the behavior of clients that
+  // predate the field. true = damaged/not restockable — no stock movement, the
+  // cost correctly stays in COGS.
+  bool   no_restock    = 3;
 }
 
 message SubmitRefundResponse {
@@ -221,6 +227,11 @@ message CloseEODBatchResponse {
   string total_sales   = 3;
   string total_refunds = 4;
   string net_sales     = 5;
+  // Count of the batch's sale movements issued with NO cost basis
+  // (cost_source='zero'). Non-zero = master data needs attention: the day's
+  // COGS is understated until the items get a cost. Drill down via the
+  // inventory zero-cost exception report.
+  int32  zero_cost_sales = 6;
 }
 
 // ── Sync log ──────────────────────────────────────────────────────────────────
