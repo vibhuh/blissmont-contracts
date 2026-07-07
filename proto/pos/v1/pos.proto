@@ -31,6 +31,14 @@ service PosService {
   // Product cache sync (server-streaming — terminal pulls on boot)
   rpc SyncProducts(SyncProductsRequest) returns (stream ProductCacheItem);
 
+  // Operator credential sync (server-streaming — terminal pulls on boot).
+  // Mirrors SyncProducts: the device caches the tenant's POS operators so
+  // Begin-Day PIN login is bcrypt-verified LOCALLY, fully offline (a till must
+  // open during a network outage). Terminal-authenticated, tenant-derived (§24).
+  // Streams ONLY the minimal operator set — a bcrypt pin_hash, NEVER the login
+  // password, NEVER a JWT, NEVER unrelated permissions. Added v1.12.0.
+  rpc SyncOperators(SyncOperatorsRequest) returns (stream OperatorCacheItem);
+
   // Order submission
   rpc SubmitOrder(SubmitOrderRequest)   returns (SubmitOrderResponse);
   rpc SubmitRefund(SubmitRefundRequest) returns (SubmitRefundResponse);
@@ -402,4 +410,28 @@ message ShiftMaster {
   string end_time   = 5; // "16:00:00"
   int32  sequence   = 6;
   bool   is_active  = 7;
+}
+
+// ── Operators (POS cashier credential cache, v1.12.0) ─────────────────────────
+// Appended at end-of-file so message indices stay append-only (keeps the generated
+// pb.go diff minimal — protoc-gen-go hardcodes message indices).
+
+message SyncOperatorsRequest {
+  string terminal_id    = 1;
+  string last_synced_at = 2; // RFC3339; empty for full sync
+}
+
+// OperatorCacheItem is one POS-eligible operator for the terminal's tenant. The
+// device caches it to verify the Begin-Day PIN offline. pin_hash is a bcrypt hash
+// (never plaintext, never the user's login password); the device bcrypt-compares
+// the entered PIN against it. status='disabled' revokes the operator on the next
+// sync; pin_version bumps when the PIN is re-set so the device re-caches the hash.
+message OperatorCacheItem {
+  string user_id      = 1; // UUID — the real users.id written to opened_by (fixes #4)
+  string display_name = 2;
+  string pin_hash     = 3; // bcrypt hash of the PIN — verified on-device, offline
+  string status       = 4; // "enabled" | "disabled"
+  string pos_role     = 5; // "cashier" (Phase 1)
+  int32  pin_version  = 6; // bump signals a re-set PIN; device re-caches
+  string updated_at   = 7; // RFC3339 — delta cursor
 }

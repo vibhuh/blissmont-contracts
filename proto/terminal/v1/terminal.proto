@@ -55,6 +55,10 @@ message Command {
     ReprintBill         reprint_bill         = 27; // UX §10 — DUPLICATE receipt
     RunEod              run_eod              = 28; // UX §12 — manual day close
     ListHeldCarts       list_held_carts      = 29; // UX §10 — discover active holds
+    // ── Operator login (Slice B — Begin-Day PIN). Core band. ──
+    ListOperators       list_operators       = 30; // discover the tenant's cashiers for the picker
+    // ── Catalog search (engine-backed product search). Core band. ──
+    ListProducts        list_products        = 31; // pull the device's product catalogue for search
   }
 }
 
@@ -77,7 +81,14 @@ message VoidCart            {}
 // supervisor_auth (on either) is present ONLY on a command RE-ISSUED after a
 // supervisor approved a gated action — the engine then skips the gate and records
 // the reason. Field tags 1–2 remain wire-compatible.
-message OpenShift           { string cashier_user_id = 1; string opening_cash_str = 2; string shift_master_id = 3; SupervisorAuth supervisor_auth = 4; }
+// operator_pin (Slice B, v1.12.0): the cashier's Begin-Day PIN, verified by the
+// engine against the locally-synced bcrypt pin_hash (offline). The engine
+// bcrypt-checks it in handleOpenShift and rejects a wrong PIN / unknown / disabled
+// operator with CommandRejected BEFORE opening — so cashier_user_id can only reach
+// opened_by after a real operator authenticated (the direct #4 fix). The engine
+// never stores or logs the PIN. Empty is rejected once operators are provisioned.
+// Tags 1–4 remain wire-compatible.
+message OpenShift           { string cashier_user_id = 1; string opening_cash_str = 2; string shift_master_id = 3; SupervisorAuth supervisor_auth = 4; string operator_pin = 5; }
 message CloseShift          { repeated Denomination denominations = 1; string closing_cash_str = 2; SupervisorAuth supervisor_auth = 3; }
 message Denomination        { int32 unit_value = 1; int32 count = 2; }
 // SupervisorAuth (defined at end of file, v1.10.0) is the completion half of the
@@ -163,6 +174,10 @@ message Event {
     HeldCartsList       held_carts_list       = 20; // reply to ListHeldCarts
     // ── Minor v1.8.0 (shift-close variance reveal — UX §12 blind count) ──
     ShiftClosed         shift_closed          = 21; // settle-time close figures (variance)
+    // ── Operator login (Slice B, v1.12.0) ──
+    OperatorsList       operators_list        = 22; // reply to ListOperators (picker data)
+    // ── Catalog search (v1.13.0) ──
+    ProductList         product_list          = 23; // reply to ListProducts (search catalogue)
   }
 }
 
@@ -563,4 +578,51 @@ message ShiftMaster {
   string end_time   = 5; // "16:00"
   int32  sequence   = 6;
   bool   is_active  = 7;
+}
+
+// ── Operator login (Slice B, v1.12.0) ────────────────────────────────────────
+// Appended at end-of-file so message indices stay append-only (minimal pb.go diff).
+
+// Operator login command. Lists the enabled cashiers cached on the device so the
+// Begin-Day screen can render the operator picker (engine replies OperatorsList).
+// Reads the locally-synced operator cache — works fully offline. NEVER carries a
+// pin_hash to the UI: the hash stays engine-local; the shell only sends the typed
+// PIN back on OpenShift.
+message ListOperators { }
+
+// OperatorsList is the reply to ListOperators: the enabled cashiers the Begin-Day
+// picker renders, sourced from the device's locally-synced operator cache. The
+// pin_hash NEVER crosses to the UI — it stays engine-local for offline PIN verify.
+message OperatorsList { repeated Operator operators = 1; }
+
+// Operator is one selectable cashier in the Begin-Day picker. user_id is the real
+// users.id that becomes OpenShift.cashier_user_id (→ opened_by) once the PIN checks.
+message Operator {
+  string user_id      = 1; // UUID
+  string display_name = 2;
+  string pos_role     = 3; // "cashier" (Phase 1)
+}
+
+// ── Catalog search (v1.13.0) ─────────────────────────────────────────────────
+// Appended at end-of-file so message indices stay append-only.
+
+// ListProducts asks the engine for the device's product catalogue so the shell's
+// search panel can rank it client-side (the LookupController pattern). Reads the
+// locally-synced product cache — works fully offline. The shell requests it when the
+// search panel opens; a PICK dispatches AddLine(item_id) as before.
+message ListProducts { }
+
+// ProductList is the reply to ListProducts: the active catalogue for search/quick-keys.
+message ProductList { repeated Product products = 1; }
+
+// Product is one catalogue row the search panel ranks + renders. item_id is what a
+// PICK sends on AddLine (the engine resolves the line from it).
+message Product {
+  string item_id        = 1; // UUID — dispatched on AddLine
+  string name           = 2;
+  string sku            = 3;
+  string barcode        = 4;
+  string unit_price_str = 5; // decimal
+  string tax_rate_str   = 6; // decimal e.g. "0.18"
+  string hsn            = 7;
 }
