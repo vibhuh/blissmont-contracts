@@ -298,6 +298,14 @@ message OrderSettled {
   // received_str = Σ tenders; change_str = max(0, received − total). Additive in v1.6.0.
   string received_str   = 6;
   string change_str     = 7;
+  // print_failed is true when auto-print was ON but the receipt did not reach the
+  // printer (offline, out of paper, write timeout). The sale is ALREADY committed
+  // and this OrderSettled is valid regardless — the UI shows the normal settle
+  // confirmation PLUS a non-blocking "receipt didn't print — reprint from history"
+  // notice. This is never a failure state; a print fault must not read as a failed
+  // sale. proto3 default false = printed OK, or auto-print disabled. Additive in
+  // v1.14.0; tags 1–7 are frozen.
+  bool   print_failed   = 8;
 }
 
 message ItemNotFound    { string barcode = 1; }
@@ -308,6 +316,9 @@ message RefundSettled {
   bool   provisional = 2; // true if recorded offline; canonical refund_number comes on sync
   string total_str   = 3;
   string settled_at  = 4; // RFC3339
+  // See OrderSettled.print_failed — the same non-fatal print-outcome signal for a
+  // refund receipt. Additive in v1.14.0; tags 1–4 are frozen.
+  bool   print_failed = 5;
 }
 
 message CashMovementRecorded {
@@ -343,6 +354,9 @@ message ReturnCommitted {
   bool   provisional      = 2; // true offline; canonical refund number on sync
   string total_str        = 3;
   string tax_reversed_str = 4; // equals the original to the paise
+  // See OrderSettled.print_failed — the same non-fatal print-outcome signal for a
+  // credit-note receipt. Additive in v1.14.0; tags 1–4 are frozen.
+  bool   print_failed     = 5;
 }
 
 message PayoutRecorded {
