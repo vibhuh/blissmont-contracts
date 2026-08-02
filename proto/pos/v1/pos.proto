@@ -386,6 +386,16 @@ message TerminalConfigSnapshot {
   string company_legal_name  = 70; // legal_name, falling back to trading name server-side
   string company_cin         = 71;
   string company_fssai       = 72;
+
+  // ── Receipt layout (v1.16.0, receipt-layout Phase 1). The resolved layout —
+  // terminal > store > company, first match wins, resolved SERVER-side — rides
+  // this snapshot like every other config key (no new sync channel) and is
+  // cached offline with it. JSON-encoded ordered region array
+  // [{"kind":"header","enabled":true,...options}, ...]: the region schema is
+  // application-level and evolves without contract churn (unknown kinds are
+  // skipped by the renderer, never fatal — Phase-2 forward compatibility).
+  // Empty → the engine's built-in default layout applies.
+  string receipt_layout = 73;
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice).
