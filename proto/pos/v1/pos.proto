@@ -369,6 +369,23 @@ message TerminalConfigSnapshot {
   bool   require_auth_different_shift  = 61;
   bool   require_auth_reopen_completed = 62;
   repeated ShiftMaster shift_masters   = 63; // ShiftMaster defined at end of file
+
+  // ── Store identity for receipt rendering (v1.15.0, receipt-layout Phase 1).
+  // Master data REFERENCED by the receipt layout, never duplicated into it: the
+  // values live on the stores/companies records and arrive via this snapshot;
+  // the layout only says which fields print and in what order. Address/phone
+  // are store-level; legal name / CIN / FSSAI are company-level statutory
+  // identity (a company registration, not a per-store fact). Empty when the
+  // master record has no value — the renderer zero-suppresses empty lines.
+  string store_address_line1 = 64;
+  string store_address_line2 = 65;
+  string store_city          = 66;
+  string store_state         = 67; // state display name, e.g. "Tamil Nadu"
+  string store_pincode       = 68;
+  string store_phone         = 69;
+  string company_legal_name  = 70; // legal_name, falling back to trading name server-side
+  string company_cin         = 71;
+  string company_fssai       = 72;
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice).
