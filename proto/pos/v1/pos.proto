@@ -396,6 +396,19 @@ message TerminalConfigSnapshot {
   // skipped by the renderer, never fatal — Phase-2 forward compatibility).
   // Empty → the engine's built-in default layout applies.
   string receipt_layout = 73;
+
+  // ── Tenant date format (v1.17.0) ────────────────────────────────────────────
+  // companies.date_format — "dd/mm/yyyy" | "mm/dd/yyyy" | "yyyy-mm-dd". Rides
+  // this snapshot BECAUSE THE TILL CANNOT ASK AT PRINT TIME: a receipt is
+  // printed offline, seconds after the sale, from cached config only. A format
+  // the device has to fetch is a format that is wrong whenever the line is down,
+  // which for this device is the normal case rather than the exception.
+  //
+  // Server-constrained to those three tokens by a CHECK on the column, so the
+  // engine treats an unrecognised or empty value as "use the built-in default"
+  // rather than a validation error — a till must print, and a date in the wrong
+  // format is recoverable in a way that a refused receipt is not.
+  string date_format = 74;
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice).

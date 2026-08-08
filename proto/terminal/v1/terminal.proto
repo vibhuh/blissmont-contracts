@@ -539,6 +539,14 @@ message TerminalConfig {
   bool   require_auth_different_shift  = 54;
   bool   require_auth_reopen_completed = 55;
   repeated ShiftMaster shift_masters   = 56; // ShiftMaster defined at end of file
+
+  // ── Tenant date format (v1.17.0) ────────────────────────────────────────────
+  // "dd/mm/yyyy" | "mm/dd/yyyy" | "yyyy-mm-dd", projected from the server
+  // snapshot. Carried to the SHELL as well as consumed by the engine's printer
+  // so the on-screen date and the printed date cannot disagree — the one way a
+  // date format visibly fails is by being right in one place and wrong in the
+  // other. Tag 57 is the next free number (1–56 frozen).
+  string date_format = 57;
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice). This
