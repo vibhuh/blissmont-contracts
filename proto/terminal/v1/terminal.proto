@@ -284,6 +284,37 @@ message SyncStatusChanged {
   bool   online        = 1;
   int32  pending       = 2; // outbox depth
   string last_sync_at  = 3; // RFC3339
+
+  // ── Config freshness (v1.18.0). Tags 1–3 are frozen. ────────────────────────
+  //
+  // A till holds its whole operating config — prices ride products, but
+  // permissions, discount caps, payment rails, the cash-variance gate and the
+  // receipt layout all come from the config snapshot. Before v1.18.0 a terminal
+  // that booted while the backend was unreachable held that config FOREVER with
+  // no retry and no alarm, and nothing on any surface said so. Retrying silently
+  // forever would be only half a fix: the silence is the defect.
+  //
+  // config_verified_at is the last time the engine CONFIRMED its config current
+  // — a full refresh or a hash match, since a match is equally proof. Empty
+  // means never (the engine has not had a successful exchange since install).
+  string config_verified_at = 4; // RFC3339
+
+  // config_stale is the ENGINE's verdict, not a raw age, so the threshold policy
+  // lives in exactly one place and two surfaces cannot disagree about when to
+  // worry. It deliberately fires at two very different ages depending on which
+  // failure this is, and `online` above is the discriminator:
+  //
+  //   online=false → the till is simply offline. That is the designed-for case
+  //     and a flaky line must not raise alarms, so the threshold is long (24h).
+  //     A till running day-old prices is still a till; one running three-day-old
+  //     prices is a problem someone should hear about.
+  //
+  //   online=true → the heartbeat works and the config pull does NOT. That is a
+  //     server-side defect, not an outage, and the threshold is short (5 min).
+  //     This is the shape of the RLS config-404 that was live from 2026-07-23 to
+  //     2026-08-15 — indistinguishable from silence for three weeks, on every
+  //     terminal, because nothing was watching this.
+  bool   config_stale       = 5;
 }
 
 message OrderSettled {

@@ -54,6 +54,21 @@ service PosService {
 
   // Offline boot config — terminal pulls its full operating snapshot on launch
   rpc GetTerminalConfig(GetTerminalConfigRequest) returns (TerminalConfigSnapshot);
+
+  // Config freshness probe (v1.18.0). Returns ONLY the content hash of the
+  // snapshot GetTerminalConfig would return right now, so a terminal polling on
+  // an interval can confirm its cached config is current without pulling and
+  // re-applying 74 fields it already has.
+  //
+  // A SEPARATE RPC, deliberately, rather than a known_hash request field plus an
+  // "unchanged" flag on TerminalConfigSnapshot. That flag shape makes an
+  // ENTIRELY ZERO-VALUED snapshot a representable, valid message — and a client
+  // that ignores the flag then reads allow_discounts=false, no payment methods,
+  // variance_requires_auth=false: exactly the permissive-zero reading migration
+  // 0108's fail-safe tail exists to prevent, arriving through the front door.
+  // One extra round trip on the rare change buys making that state
+  // unrepresentable.
+  rpc GetTerminalConfigVersion(GetTerminalConfigVersionRequest) returns (TerminalConfigVersion);
 }
 
 // ── Terminal ─────────────────────────────────────────────────────────────────
@@ -77,7 +92,19 @@ message HeartbeatRequest {
 }
 
 message HeartbeatResponse {
-  bool   config_changed     = 1; // true → call SyncProducts
+  // DEAD SIGNAL — never set by the server, never read by the engine. Retained
+  // only for wire compatibility; do not reintroduce a dependency on it.
+  //
+  // The server has always hardcoded this false (there is no per-terminal
+  // config-delivery tracking), while the engine's sync loop gated its config
+  // refresh, product delta AND operator delta on it being true. So all three
+  // were dead code after boot: a running till never saw a price change and a
+  // revoked cashier kept logging in until the engine restarted. Freshness is now
+  // the TERMINAL's own business — it polls GetTerminalConfigVersion on an
+  // interval and compares hashes, which converges regardless of what the server
+  // remembers. A flag hardcoded false and a version token nothing increments are
+  // the same object; neither is a freshness signal.
+  bool   config_changed     = 1 [deprecated = true];
   string server_time_utc    = 2; // RFC3339 — for clock-skew detection
 }
 
@@ -267,6 +294,17 @@ message GetTerminalConfigRequest {
   string terminal_id = 1;
 }
 
+message GetTerminalConfigVersionRequest {
+  string terminal_id = 1;
+}
+
+// TerminalConfigVersion is the content hash of the snapshot GetTerminalConfig
+// would return for this terminal right now. Added v1.18.0.
+message TerminalConfigVersion {
+  string config_hash     = 1; // opaque; compare for equality, never parse
+  string server_time_utc = 2; // RFC3339 — for clock-skew detection
+}
+
 // TerminalConfigSnapshot is everything a terminal needs to operate offline.
 // Deliberately scoped: NO GL account ids (server-side posting concern — never
 // leak to the device), NO tax rules (tax rides on products via SyncProducts),
@@ -409,6 +447,25 @@ message TerminalConfigSnapshot {
   // rather than a validation error — a till must print, and a date in the wrong
   // format is recoverable in a way that a refused receipt is not.
   string date_format = 74;
+
+  // ── Config content hash (v1.18.0) ───────────────────────────────────────────
+  // The same opaque token GetTerminalConfigVersion returns, stamped on the
+  // snapshot so a device stores the hash the SERVER computed for the config it
+  // actually applied, rather than deriving one itself. A client-side hash could
+  // disagree with the server's forever and refetch on every interval; a
+  // server-authoritative token compared for equality cannot.
+  //
+  // Computed over this whole message with fetched_at and config_hash cleared —
+  // over the ANSWER, not over a guess at its inputs. That is what makes it
+  // deletion-safe (a removed payment method changes it), first-match-safe (a new
+  // narrower receipt-layout row changes it), and correct across the three master
+  // joins that carry no timestamp column at all. A future field 76 populated by
+  // the mapper is covered with no further thought, which a composed
+  // per-source-table etag could never be — that is a freshness signal maintained
+  // apart from the data it describes, which is the defect class this replaces.
+  //
+  // Opaque: compare for equality, never parse or order.
+  string config_hash = 75;
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice).
