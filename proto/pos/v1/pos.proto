@@ -186,6 +186,18 @@ message OrderLine {
   string unit_price_str = 5;
   string discount_str   = 6;
   string tax_rate_str   = 7;
+  // Tax-inclusive MRP AS IT WAS when this line was rung, captured device-side at
+  // scan/search-selection time from ProductCacheItem.mrp_str and persisted on the
+  // device order line. The server stores it verbatim on pos_order_lines.mrp —
+  // deliberately NOT re-resolved from items.mrp at upload time, which for an
+  // offline bill replayed days later would answer a different question (what the
+  // shelf says now, not what this customer was told).
+  //
+  // It is the INPUT to the customer-facing "You Save"; the saving itself is never
+  // stored, on either side. Empty when the device never recorded one (a bill from
+  // a till older than device schema v10, or an item with no MRP).
+  // Additive in v1.19.0; tags 1–7 frozen.
+  string mrp_str        = 8; // decimal, tax-inclusive; empty if none
 }
 
 message Payment {
