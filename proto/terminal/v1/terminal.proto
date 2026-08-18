@@ -578,6 +578,19 @@ message TerminalConfig {
   // date format visibly fails is by being right in one place and wrong in the
   // other. Tag 57 is the next free number (1–56 frozen).
   string date_format = 57;
+
+  // ── Statutory numbering (v1.20.0, A2) ───────────────────────────────────────
+  // Projected from the server snapshot. The engine composes `SERIES/FY/SERIAL`
+  // from these plus its own device-local serial; the shell needs them only to
+  // render, never to allocate. Tags 58–60 are the next free numbers (1–57 frozen).
+  //
+  // The FY token is derived from fiscal_year_start_month and the sale's date IN
+  // THE STORE'S LOCAL ZONE (timezone, field 9) — never UTC. 05:00 IST on 1 April
+  // is 31 March in UTC, i.e. the previous financial year, and the mistake is
+  // invisible except for a few hours a year.
+  string series_code             = 58; // sales invoices, 2 chars
+  string cn_series_code          = 59; // credit notes, 2 chars — own series
+  int32  fiscal_year_start_month = 60; // 1–12; 4 = India Apr–Mar default
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice). This

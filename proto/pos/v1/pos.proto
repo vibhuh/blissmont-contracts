@@ -176,6 +176,21 @@ message SubmitOrderRequest {
                                  // NEVER re-applied to tax — the per-line
                                  // discount_str already carries its distributed
                                  // share so the wire stays single-path per-line.
+  // The CANONICAL tax-invoice number, allocated on the device at settle and
+  // already PRINTED on the customer's copy: SERIES/FY/SERIAL, e.g. "T1/2627/000001"
+  // (CGST s.31 + Rule 46(b)). The server stores this verbatim as
+  // pos_orders.order_number / receipt_number and does NOT renumber — a tax invoice
+  // whose number is not the number in the ledger cannot carry the title.
+  //
+  // "The device allocates" is not "the device is unvalidated input": the server
+  // rejects a malformed format, a series that does not belong to this terminal's
+  // counter, or an FY token disagreeing with order_date's financial year. The
+  // UNIQUE index catches duplicates; nothing else catches those three.
+  //
+  // Empty = a pre-A2 client, which the server still renumbers from the retired
+  // store sequence so an un-upgraded till keeps selling.
+  // Additive in v1.20.0; tags 1–8 frozen.
+  string invoice_no = 9;
 }
 
 message OrderLine {
@@ -222,6 +237,18 @@ message SubmitRefundRequest {
   string reason      = 3;
   repeated RefundLine lines = 4;
   string client_ref  = 5; // device-local idempotency key; replay returns the same refund
+  // The CANONICAL credit-note number, allocated on the device and already printed
+  // (CGST s.34 + Rule 53). Its OWN series, distinct from the sales series, so the
+  // sales series has no holes — that gap is an auditor's first question. Stored
+  // verbatim as pos_refunds.refund_number; validated exactly as invoice_no is.
+  //
+  // Both device paths — a re-keyed refund and a three-step return — are ONE
+  // statutory document and share this series. The old RF/CN prefix split was a UX
+  // artefact and does not survive.
+  //
+  // Empty = a pre-A2 client, which the server numbers as it did before.
+  // Additive in v1.20.0; tags 1–5 frozen.
+  string credit_note_no = 6;
 }
 
 message RefundLine {
@@ -319,9 +346,22 @@ message TerminalConfigVersion {
 
 // TerminalConfigSnapshot is everything a terminal needs to operate offline.
 // Deliberately scoped: NO GL account ids (server-side posting concern — never
-// leak to the device), NO tax rules (tax rides on products via SyncProducts),
-// NO receipt_seq (server owns the atomic increment; the device shows a
-// provisional number offline). Printer config stays device-local.
+// leak to the device), NO tax rules (tax rides on products via SyncProducts).
+// Printer config stays device-local.
+//
+// NUMBERING (v1.20.0, A2 — this reverses what this comment said until then).
+// Until A2 this block read "NO receipt_seq (server owns the atomic increment; the
+// device shows a provisional number offline)". That is no longer true and the
+// sentence is removed rather than left to rot: the DEVICE is now the allocator and
+// its number is canonical, so the snapshot carries what the device needs to
+// COMPOSE a statutory number offline — the two series codes and the company's
+// fiscal-year start month — and still carries no server counter.
+//
+// What it deliberately still does NOT carry is a mutable SERIAL. A high-water mark
+// on a snapshot refreshed every ~60s could rewind a live counter that has settled
+// ahead of it; a replacement device's resume point is therefore an explicit,
+// recorded admin act in the provisioning response, never a number the till infers
+// from cached config.
 message TerminalConfigSnapshot {
   string store_code         = 1;
   string store_name         = 2;
@@ -478,6 +518,27 @@ message TerminalConfigSnapshot {
   //
   // Opaque: compare for equality, never parse or order.
   string config_hash = 75;
+
+  // ── Statutory numbering (v1.20.0, A2) ───────────────────────────────────────
+  // What the device needs to COMPOSE `SERIES/FY/SERIAL` offline. The serial is
+  // device-local state; only these three ride the wire. Tags 76–78 are the next
+  // free numbers (1–75 frozen).
+  //
+  // The two series codes belong to this terminal's COUNTER, not to the device —
+  // that is the whole point of the counter entity. A till that dies and is
+  // replaced keeps them, because they are resolved through pos_terminals.counter_id
+  // and the replacement points at the same counter row.
+  string series_code    = 76; // sales invoices, 2 chars, e.g. "T1"
+  string cn_series_code = 77; // credit notes, 2 chars, e.g. "C1" — a DIFFERENT
+                              // series, so the sales series has no holes
+
+  // companies.fiscal_year_start_month (1–12; 4 = the India Apr–Mar default).
+  // Rides the snapshot BECAUSE THE TILL CANNOT ASK AT SETTLE TIME — the same
+  // reason date_format does. The device derives the FY token from this and the
+  // sale's date IN THE STORE'S LOCAL ZONE (field 9), never from UTC: 05:00 IST on
+  // 1 April is still 31 March in UTC, which is the WRONG financial year, silently,
+  // once a year.
+  int32 fiscal_year_start_month = 78;
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice).
