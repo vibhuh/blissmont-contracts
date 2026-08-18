@@ -207,11 +207,21 @@ message CartUpdated {
   bool     tax_interstate        = 17; // place-of-supply: true → IGST, false → CGST/SGST
   int32    item_count            = 18; // distinct lines (cashier cross-check)
   string   unit_count_str        = 19; // summed quantity (cashier cross-check)
-  // The receipt number the NEXT settle on this terminal will assign (provisional
-  // format, e.g. "BLISSP000124") — the bill the cashier is currently ringing up. The
-  // engine peeks the provisional sequence WITHOUT consuming it and stamps it on every
-  // cart snapshot so the top bar shows the live bill #. Empty until the engine projects
-  // it. Additive in v1.6.0; tags 1–19 are frozen.
+  // The receipt number the NEXT settle on this terminal will assign — the bill the
+  // cashier is currently ringing up — previewed WITHOUT consuming it and stamped on
+  // every cart snapshot so the top bar shows the live bill #. Empty until the engine
+  // projects it. Additive in v1.6.0; tags 1–19 are frozen.
+  //
+  // Since POS-A2 this is the STATUTORY number (SERIES/FY/SERIAL, e.g.
+  // "T1/2627/000001") composed from the counter's series and the store's financial
+  // year. This comment described "provisional format, e.g. BLISSP000124", peeked
+  // from a device-local provisional sequence — both the format and the mechanism
+  // it named were retired by A2 (store.PeekProvisionalSeq no longer exists), and
+  // the sentence is corrected here rather than left to rot.
+  //
+  // It is a PREVIEW, not a reservation: nothing is allocated until settle, which
+  // allocates inside the settle transaction. A cart abandoned after this was shown
+  // burns no serial, which is what keeps the series gapless.
   string   next_receipt_no       = 20;
   // "You Save" — the customer-facing savings on this cart = Σ max(0, MRP×qty −
   // post-tax line gross), projected from the SINGLE snapshot computation (never
