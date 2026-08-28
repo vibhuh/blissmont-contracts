@@ -59,6 +59,11 @@ message Command {
     ListOperators       list_operators       = 30; // discover the tenant's cashiers for the picker
     // ── Catalog search (engine-backed product search). Core band. ──
     ListProducts        list_products        = 31; // pull the device's product catalogue for search
+    // ── Customer lookup (v1.21.0) — distinct from SearchByCustomer (UX §10
+    //    which searches PAST ORDERS). This searches the server's pos_customers
+    //    table by name/phone so the cashier can attach a named customer to the
+    //    active bill BEFORE settle.
+    LookupCustomers     lookup_customers     = 32;
   }
 }
 
@@ -69,7 +74,15 @@ message SetLineDiscount     { int32 line_no = 1; string discount_str = 2; }
 message SetUnitPriceOverride{ int32 line_no = 1; string price_str = 2; }
 message RemoveLine          { int32 line_no = 1; }
 message SetOrderDiscount    { string discount_str = 1; }
-message SelectCustomer      { string pos_customer_id = 1; } // empty = walk-in
+// SelectCustomer attaches a named customer to the active bill. Both fields are
+// additive so an older shell sending only pos_customer_id still works. The engine
+// stores customer_name alongside customer_id so the receipt can print it without
+// a server round-trip at settle time.
+message SelectCustomer      {
+  string pos_customer_id = 1; // UUID from the server's pos_customers table; empty = walk-in
+  string customer_name   = 2; // display name — denormalised here so the engine can
+                               // print it on the receipt offline without a re-lookup
+}
 message HoldCart            { string label = 1; }
 message ResumeCart          { string held_cart_id = 1; }
 message AddTender           { string method = 1; string amount_str = 2; string reference = 3; }
@@ -135,6 +148,12 @@ message RecallRecent        { int32 limit = 1; }
 message RecallByReceiptNo   { string receipt_no = 1; }
 message SearchByCustomer    { string query = 1; }
 message ReprintBill         { string receipt_no = 1; } // duplicate, marked "DUPLICATE"
+// LookupCustomers searches the server's pos_customers table by name or phone.
+// The engine relays the query to the server and replies with CustomerLookupResults.
+// Online-only: if the server is unreachable the engine replies CommandRejected
+// (CUSTOMER_LOOKUP_OFFLINE). Walk-in sales never send this.
+message LookupCustomers     { string query = 1; }
+
 // EOD (UX §12). Manual confirm; rejected (EodBlocked) if any shift is open.
 message RunEod              {}
 // Suspend/resume (UX §10). Lists the terminal's active held carts so the cashier
@@ -178,6 +197,8 @@ message Event {
     OperatorsList       operators_list        = 22; // reply to ListOperators (picker data)
     // ── Catalog search (v1.13.0) ──
     ProductList         product_list          = 23; // reply to ListProducts (search catalogue)
+    // ── Customer lookup (v1.21.0) ──
+    CustomerLookupResults customer_lookup_results = 24; // reply to LookupCustomers
   }
 }
 
@@ -325,6 +346,30 @@ message SyncStatusChanged {
   //     2026-08-15 — indistinguishable from silence for three weeks, on every
   //     terminal, because nothing was watching this.
   bool   config_stale       = 5;
+
+  // ── Auth alarm (v1.21.0). Tags 1–5 are frozen. ──────────────────────────────
+  //
+  // auth_failed is set by the engine after N=3 consecutive heartbeat failures
+  // with gRPC codes Unauthenticated or PermissionDenied, and cleared the moment a
+  // heartbeat succeeds. It is DISTINCT from online=false (which also fires on a
+  // network outage): auth_failed means the server is reachable but the terminal
+  // credential is wrong. The shell must render this as a blocking alarm ("Terminal
+  // not authorised — contact administrator"), not a status-line word.
+  //
+  // Cause: the API key was rotated server-side mid-session (or the terminal was
+  // deactivated). The engine's local outbox continues queueing bills; the drain
+  // will succeed once the engine restarts with a fresh key — but the cashier must
+  // not be left discovering the gap at end-of-day reconciliation.
+  bool   auth_failed             = 6;
+
+  // oldest_pending_age_seconds is the age of the OLDEST pending-or-failed outbox
+  // entry, in seconds. Zero means the outbox is empty. The shell renders this as
+  // "N orders pending, oldest Xm ago" — the operator sees both depth and age
+  // rather than a bare count that does not answer "how long have they been stuck?".
+  //
+  // Populated on every tick (same cadence as pending). Zero when online and the
+  // outbox is empty; non-zero the moment any bill fails to drain.
+  int64  oldest_pending_age_secs = 7;
 }
 
 message OrderSettled {
@@ -701,4 +746,18 @@ message Product {
   string unit_price_str = 5; // decimal
   string tax_rate_str   = 6; // decimal e.g. "0.18"
   string hsn            = 7;
+}
+
+// ── Customer lookup (v1.21.0) ─────────────────────────────────────────────────
+//
+// CustomerLookupResults is the reply to LookupCustomers: server-side pos_customers
+// rows matching the query. The shell displays the list; the cashier picks one and
+// sends SelectCustomer with both id and name so the engine can print the name on
+// the receipt offline.
+message CustomerLookupResults { repeated CustomerRecord records = 1; }
+
+message CustomerRecord {
+  string id    = 1; // pos_customers.id (UUID)
+  string name  = 2; // display name
+  string phone = 3; // optional — shown in the picker to distinguish duplicates
 }
