@@ -1,5 +1,6 @@
 syntax = "proto3";
 package blissmont.terminal.v1;
+import "google/protobuf/wrappers.proto";
 // NOTE: go_package adjusted from the original `blissmont-pos/...` header so the
 // engine compiles INSIDE the rachis-core module (single go.mod) and can import
 // rachis-core/internal/money directly. Generated code lands at
@@ -64,6 +65,10 @@ message Command {
     //    table by name/phone so the cashier can attach a named customer to the
     //    active bill BEFORE settle.
     LookupCustomers     lookup_customers     = 32;
+    // ── Device printer settings (v1.22.0) — device-local; persisted in
+    //    device_settings SQLite table, applied live by the engine.
+    SetDeviceConfig     set_device_config    = 33;
+    PrintTestPage       print_test_page      = 34;
   }
 }
 
@@ -153,6 +158,17 @@ message ReprintBill         { string receipt_no = 1; } // duplicate, marked "DUP
 // Online-only: if the server is unreachable the engine replies CommandRejected
 // (CUSTOMER_LOOKUP_OFFLINE). Walk-in sales never send this.
 message LookupCustomers     { string query = 1; }
+// SetDeviceConfig (v1.22.0). Sets device-local printer parameters. The engine
+// persists each field to device_settings and applies the change live.
+// paper_width_mm 0 = leave unchanged. auto_print_override absent = clear the
+// override so the server snapshot's auto_print_receipt resumes.
+message SetDeviceConfig {
+  int32                     paper_width_mm      = 1; // 0 = unchanged; valid: 58, 80, 104
+  google.protobuf.BoolValue auto_print_override = 2; // absent = clear override
+}
+// PrintTestPage (v1.22.0). Engine prints ESC @ reset + store name +
+// "Test print OK" + feed/cut. No layout dependency.
+message PrintTestPage       {}
 
 // EOD (UX §12). Manual confirm; rejected (EodBlocked) if any shift is open.
 message RunEod              {}
