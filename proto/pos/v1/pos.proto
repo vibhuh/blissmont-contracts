@@ -69,6 +69,11 @@ service PosService {
   // One extra round trip on the rare change buys making that state
   // unrepresentable.
   rpc GetTerminalConfigVersion(GetTerminalConfigVersionRequest) returns (TerminalConfigVersion);
+
+  // Customer search — returns up to 20 active named POS customers matching a
+  // name or phone prefix. Minimum query length (2 chars) enforced server-side.
+  // Added v1.23.0; tags above are frozen.
+  rpc SearchPosCustomers(SearchPosCustomersRequest) returns (SearchPosCustomersResponse);
 }
 
 // ── Terminal ─────────────────────────────────────────────────────────────────
@@ -159,6 +164,11 @@ message ProductCacheItem {
   // wins when present, else item; empty when neither carries one). Drives the
   // customer-facing "You Save" calc device-side. Additive in v1.11.0; tags 1–10 frozen.
   string   mrp_str           = 11; // decimal, tax-inclusive; empty if none
+  // uom_code is the resolved statutory unit for Rule 46: cbic_uqc_code when set on
+  // items.sales_uom_id → units_of_measure, else the UOM's free-form code, else "".
+  // Empty means the item has no UOM set; the device omits the unit column for that line.
+  // Additive in v1.23.0; tags 1–11 frozen.
+  string   uom_code          = 12;
 }
 
 // ── Orders ────────────────────────────────────────────────────────────────────
@@ -191,6 +201,10 @@ message SubmitOrderRequest {
   // store sequence so an un-upgraded till keeps selling.
   // Additive in v1.20.0; tags 1–8 frozen.
   string invoice_no = 9;
+  // The pos_customer_id the cashier selected before settling (UUID string).
+  // Empty when no named customer is attached to the order. Additive in v1.23.0;
+  // tags 1–9 frozen.
+  string customer_id = 10;
 }
 
 message OrderLine {
@@ -604,4 +618,20 @@ message OperatorCacheItem {
   string pos_role     = 5; // "cashier" (Phase 1)
   int32  pin_version  = 6; // bump signals a re-set PIN; device re-caches
   string updated_at   = 7; // RFC3339 — delta cursor
+}
+
+// ── Customer search (v1.23.0) ─────────────────────────────────────────────────
+
+message SearchPosCustomersRequest {
+  string query = 1; // name or phone prefix; min 2 chars enforced server-side
+}
+
+message SearchPosCustomersResponse {
+  repeated PosCustomerRecord customers = 1;
+}
+
+message PosCustomerRecord {
+  string id    = 1; // pos_customers.id (UUID)
+  string name  = 2;
+  string phone = 3; // optional
 }
