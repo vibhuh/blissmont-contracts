@@ -662,6 +662,22 @@ message TerminalConfig {
   string series_code             = 58; // sales invoices, 2 chars
   string cn_series_code          = 59; // credit notes, 2 chars — own series
   int32  fiscal_year_start_month = 60; // 1–12; 4 = India Apr–Mar default
+  // ── Device-local printer settings (v1.24.0) ─────────────────────────────────
+  // NOT projected from the server snapshot — these are the engine's OWN
+  // device-local settings, read from its SQLite device_settings table and
+  // merged in here so the shell can DISPLAY what is currently set. Every other
+  // field in this message flows server → engine → shell; these two flow
+  // engine → shell only.
+  //
+  // Without them a printer-settings screen is write-only: it can change the
+  // paper width but cannot show which width is in force, so checking a setting
+  // would mean changing it. Tags 61–62 are the next free numbers (1–60 frozen).
+  //
+  // auto_print_receipt is the EFFECTIVE value after the device-local override
+  // is applied over the server snapshot — the shell shows what will happen,
+  // not which layer decided it.
+  int32 paper_width_mm      = 61; // 58 | 80 | 104; 0 = renderer default
+  bool  auto_print_receipt  = 62; // effective value (device override or server)
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice). This
