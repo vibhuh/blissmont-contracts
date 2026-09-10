@@ -74,6 +74,11 @@ service PosService {
   // name or phone prefix. Minimum query length (2 chars) enforced server-side.
   // Added v1.23.0; tags above are frozen.
   rpc SearchPosCustomers(SearchPosCustomersRequest) returns (SearchPosCustomersResponse);
+
+  // Reprint audit — records a successful duplicate receipt on the server so the
+  // audit trail lives off the audited device (malpractice control, Stage 1).
+  // Terminal-authenticated, tenant-derived (§24). Added v1.24.0.
+  rpc RecordReprint(RecordReprintRequest) returns (RecordReprintResponse);
 }
 
 // ── Terminal ─────────────────────────────────────────────────────────────────
@@ -634,4 +639,26 @@ message PosCustomerRecord {
   string id    = 1; // pos_customers.id (UUID)
   string name  = 2;
   string phone = 3; // optional
+}
+
+// ── Reprint audit (v1.24.0) ───────────────────────────────────────────────────
+// Appended at end-of-file so message indices stay append-only (minimal pb.go diff).
+
+// RecordReprintRequest carries everything the device knows at reprint time.
+// tenant_id, company_id and store_id are resolved server-side from the
+// authenticated terminal (§24 — derived-only, un-spoofable).
+message RecordReprintRequest {
+  string terminal_id         = 1;
+  string receipt_no          = 2;
+  string pos_order_id        = 3; // server pos_orders.id (UUID)
+  string shift_id            = 4; // server pos_register_sessions.id; empty = no shift open
+  string cashier_user_id     = 5; // users.id; empty = no cashier
+  string cashier_name        = 6; // denormalised; readable after rename/delete
+  string authorized_by       = 7; // Stage 2 gate; empty for now
+  string auth_reason         = 8; // Stage 2 gate; empty for now
+  string reprinted_at_device = 9; // RFC3339 device clock
+}
+
+message RecordReprintResponse {
+  string id = 1; // server-assigned UUID of the created pos_reprints row
 }
