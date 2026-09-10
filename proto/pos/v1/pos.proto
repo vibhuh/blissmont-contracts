@@ -443,7 +443,7 @@ message TerminalConfigSnapshot {
   // Returns (UX §9).
   bool   allow_blind_return    = 43;
   string refund_tender_mode    = 44; // "original" | "cash" | "both"
-  string return_requires_auth  = 45; // "always" | "config" | "never"
+  string return_requires_auth  = 45; // "always" | "never"
   bool   restock_default       = 46;
   bool   allow_partial_return  = 47;
 
@@ -558,6 +558,11 @@ message TerminalConfigSnapshot {
   // 1 April is still 31 March in UTC, which is the WRONG financial year, silently,
   // once a year.
   int32 fiscal_year_start_month = 78;
+
+  // reprint_requires_auth (v1.26.0): mirrors return_requires_auth for history-panel reprints.
+  // "always" = supervisor authorisation required; "never" (or absent) = permitted.
+  // Tag 79 is the next free number (1–78 frozen).
+  string reprint_requires_auth = 79; // "always" | "never"
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice).

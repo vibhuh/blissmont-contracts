@@ -127,7 +127,14 @@ message AddMiscCharge       { string description = 1; string amount_str = 2; }
 message RecordPayout        { string amount_str = 1; string category = 2; string note = 3; }
 // Returns (UX §9), three-step. StartReturn loads the original bill's lines into a
 // return context; blind only valid if allow_blind_return.
-message StartReturn         { string original_receipt_no = 1; bool blind = 2; }
+// supervisor_auth (field 3, v1.26.0): the completion half of the AuthRequired
+// signal. Present ONLY on a command re-issued after an AuthRequired{action:"return"}
+// event. The shell verified the supervisor PIN device-side; this is the attestation.
+message StartReturn {
+  string original_receipt_no  = 1;
+  bool   blind                = 2;
+  SupervisorAuth supervisor_auth = 3;
+}
 // Per-line selection; qty defaults to the sold qty, editable down; restock per
 // restock_default.
 message SetReturnLineQty    { int32 original_line_no = 1; string qty_str = 2; bool restock = 3; }
@@ -152,7 +159,13 @@ message CommitReturn        {
 message RecallRecent        { int32 limit = 1; }
 message RecallByReceiptNo   { string receipt_no = 1; }
 message SearchByCustomer    { string query = 1; }
-message ReprintBill         { string receipt_no = 1; } // duplicate, marked "DUPLICATE"
+// supervisor_auth (field 2, v1.26.0): the completion half of the AuthRequired
+// signal. Present ONLY on a command re-issued after an AuthRequired{action:"reprint"}
+// event. The shell verified the supervisor PIN device-side; this is the attestation.
+message ReprintBill {
+  string receipt_no           = 1; // duplicate, marked "DUPLICATE"
+  SupervisorAuth supervisor_auth = 2;
+}
 // LookupCustomers searches the server's pos_customers table by name or phone.
 // The engine relays the query to the server and replies with CustomerLookupResults.
 // Online-only: if the server is unreachable the engine replies CommandRejected
@@ -605,7 +618,7 @@ message TerminalConfig {
   // ── Returns (UX §9) ──
   bool   allow_blind_return   = 35;
   string refund_tender_mode   = 36; // "original" | "cash" | "both"
-  string return_requires_auth = 37; // "always" | "config" | "never"
+  string return_requires_auth = 37; // "always" | "never"
   bool   restock_default      = 38;
   bool   allow_partial_return = 39;
 
@@ -678,6 +691,11 @@ message TerminalConfig {
   // not which layer decided it.
   int32 paper_width_mm      = 61; // 58 | 80 | 104; 0 = renderer default
   bool  auto_print_receipt  = 62; // effective value (device override or server)
+
+  // reprint_requires_auth (v1.26.0): whether reprinting a historical bill requires
+  // supervisor authorisation. "always" = always required; "never" (or absent) = permitted.
+  // Mirrors return_requires_auth's gate structure. Tag 63 is the next free number (1–62 frozen).
+  string reprint_requires_auth = 63; // "always" | "never"
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice). This
