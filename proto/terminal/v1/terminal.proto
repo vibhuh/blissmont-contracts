@@ -178,6 +178,7 @@ message LookupCustomers     { string query = 1; }
 message SetDeviceConfig {
   int32                     paper_width_mm      = 1; // 0 = unchanged; valid: 58, 80, 104
   google.protobuf.BoolValue auto_print_override = 2; // absent = clear override
+  int32                     copies              = 3; // 0 = unchanged; valid: 1-2
 }
 // PrintTestPage (v1.22.0). Engine prints ESC @ reset + store name +
 // "Test print OK" + feed/cut. No layout dependency.
@@ -696,6 +697,11 @@ message TerminalConfig {
   // supervisor authorisation. "always" = always required; "never" (or absent) = permitted.
   // Mirrors return_requires_auth's gate structure. Tag 63 is the next free number (1–62 frozen).
   string reprint_requires_auth = 63; // "always" | "never"
+
+  // Device printer settings extended (v1.27.0). Tags 64–66 are the next free numbers (1–63 frozen).
+  int32  copies               = 64; // effective print copies (1 or 2); 0 = engine default (1)
+  string receipt_layout_scope = 65; // "terminal" | "store" | "company" | "" (built-in default)
+  string printer_device       = 66; // e.g. "/dev/usb/lp0"; empty = engine default
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice). This

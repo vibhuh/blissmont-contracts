@@ -563,6 +563,12 @@ message TerminalConfigSnapshot {
   // "always" = supervisor authorisation required; "never" (or absent) = permitted.
   // Tag 79 is the next free number (1–78 frozen).
   string reprint_requires_auth = 79; // "always" | "never"
+
+  // receipt_layout_scope (v1.27.0): which scope produced the active receipt layout.
+  // "terminal" | "store" | "company" | "" (no custom layout — built-in default applies).
+  // Set server-side from the layout-resolution query (terminal > store > company priority).
+  // Tag 80 is the next free number (1–79 frozen).
+  string receipt_layout_scope = 80;
 }
 
 // SaleColumn is one column of the terminal-local sale table (render choice).
