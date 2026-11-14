@@ -90,7 +90,37 @@ message SelectCustomer      {
 }
 message HoldCart            { string label = 1; }
 message ResumeCart          { string held_cart_id = 1; }
-message AddTender           { string method = 1; string amount_str = 2; string reference = 3; }
+// AddTender adds one tender to the active bill.
+//
+// Tags 4–8 are the STRUCTURED tender identity, mirroring pos.v1.Payment 4–8 tag
+// for tag so the engine's upload is a straight copy and a reader of either file
+// sees one numbering.
+//
+// The cashier types the acquirer reference ONCE, into the field `reference` (3)
+// already governs, and the ENGINE copies it into utr for a UPI tender or
+// terminal_ref for a card one — one input, both destinations, resolved at the
+// one layer that knows both the rail and the column widths.
+//
+// The engine validates each field against its server column and REJECTS the
+// command with a cashier-facing error when one does not fit. It never silently
+// drops: nothing is committed at addTender, so the cashier is the one who can
+// correct a mistyped reference, and under details_mode "required" a rejected
+// field is simply not filled. Storing a malformed value as NULL is the SERVER's
+// stance on upload, and only because that bill is already paid and printed —
+// see pos.v1.Payment.
+//
+// Never a full card number. card_last4 only, four digits.
+// Additive in v1.28.0; tags 1–3 are frozen.
+message AddTender {
+  string method       = 1;
+  string amount_str   = 2;
+  string reference    = 3;
+  string card_type    = 4; // ≤30
+  string card_last4   = 5; // EXACTLY 4 digits
+  string terminal_ref = 6; // card-terminal / acquirer approval or RRN, ≤100
+  string utr          = 7; // ≤35
+  string payer_vpa    = 8; // handle@psp, ≤255
+}
 message RemoveTender        { int32 tender_no = 1; }
 message Settle              {}
 message VoidCart            {}
@@ -307,7 +337,29 @@ message CartLine {
   bool   discount_eligible = 13;
 }
 
-message Tender { int32 tender_no = 1; string method = 2; string amount_str = 3; string reference = 4; }
+// Tender is one tender on the live cart snapshot (CartUpdated.tenders) and on a
+// recalled bill (BillDetail.payments).
+//
+// The structured identity starts at 5, NOT 4, because `reference` already holds
+// tag 4 in THIS message. Tags are on the wire, so the 4–8 mirror that
+// pos.v1.Payment and AddTender share cannot be kept here; the offset is
+// deliberate and the alternative — renumbering — is forbidden.
+//
+// It is carried because BillDetail has no other source. The live cart could be
+// re-rendered from what the shell just typed, but a bill recalled days later can
+// only show "visa ·4242" if the engine hands the fields over.
+// Additive in v1.28.0; tags 1–4 are frozen.
+message Tender {
+  int32  tender_no    = 1;
+  string method       = 2;
+  string amount_str   = 3;
+  string reference    = 4;
+  string card_type    = 5;
+  string card_last4   = 6;
+  string terminal_ref = 7;
+  string utr          = 8;
+  string payer_vpa    = 9;
+}
 
 message ShiftStateChanged {
   string shift_id   = 1;
@@ -720,7 +772,8 @@ message SaleColumn {
 // server-internal fields (GL account id, VPA/TID/merchant secrets,
 // payment_mode_id) are dropped at the engine boundary and never appear here.
 message PaymentMethod {
-  string method         = 1;  // stable id: "cash" | "upi" | "card" | ...
+  // method is a public.payment_method enum value, carried verbatim.
+  string method         = 1;
   string display_name   = 2;  // localizable; shown to cashier
   string hotkey         = 3;  // EXPLICIT (not derived from display_name — survives
                               //   localization + first-letter collisions like Cash/Card)
@@ -732,6 +785,26 @@ message PaymentMethod {
   //   "optional" — field shown; tender may complete with it blank (recorded if entered).
   //   "required" — field shown; tender CANNOT complete until a reference is entered.
   string reference_mode = 6;
+
+  // ── Details capture (v1.28.0). Tags 1–6 are frozen. ─────────────────────────
+  // Terminal-domain twin of pos.v1.PaymentMethodConfig's details_mode (10) and
+  // details_kind (11) — see that message for the full reasoning. In short:
+  //
+  // details_mode is the store's POLICY for the structured tender identity
+  // (AddTender 4–8): "none" hides the details row, "optional" shows it collapsed
+  // and lets the tender complete empty, "required" opens it and blocks
+  // completion until it is filled. Absent reads as "optional", the default.
+  //
+  // details_kind is the RAIL, derived server-side from the payment_method enum
+  // and never inferred device-side: "card" → card_type + card_last4 (acquirer
+  // reference is terminal_ref), "upi" → payer_vpa (acquirer reference is utr),
+  // "" → this method has no structured identity.
+  //
+  // Together they say "ask, and ask for these", which is the whole device-side
+  // contract: the shell renders what kind says, gated by what mode says, and
+  // decides nothing about either.
+  string details_mode = 7;
+  string details_kind = 8;
 }
 
 // ── Shift management (v1.10.0) ────────────────────────────────────────────────
