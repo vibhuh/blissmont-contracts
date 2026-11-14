@@ -99,6 +99,44 @@ message HeartbeatRequest {
   string terminal_id = 1;
   string app_version = 2;
   bool   is_online   = 3;
+
+  // ── Sync backlog (v1.28.0). Tags 1–3 are frozen. ────────────────────────────
+  //
+  // Per-terminal outbox health, so the POS dashboard's Data Sync tile and the
+  // Terminal Fleet "pending sync" column read a figure the DEVICE reported
+  // rather than one the server inferred. The device is the only thing that can
+  // know its own queue, and the ratified redesign says so in as many words:
+  // "the server must not guess them".
+  //
+  // It is a MESSAGE, not three scalar fields, because absence has to be
+  // expressible. Every one of the three is legitimately zero on a healthy till
+  // with an empty queue, so no scalar value can distinguish "this engine does
+  // not report backlog" from "there is no backlog" — and those two must render
+  // differently (a Phase-2 placeholder, not a reassuring "0 pending" on a till
+  // with forty bills stuck on it). Message presence is explicit in proto3, so
+  // an absent sync_backlog stores NULL and a present one stores its figures,
+  // zeros included.
+  SyncBacklog sync_backlog = 4;
+}
+
+// SyncBacklog is one terminal's unsent-work report, carried on the heartbeat.
+//
+// pending_sync_count and failed_sync_count are DISJOINT — an entry is counted in
+// exactly one of them — so a dashboard may add them for a total. This is
+// deliberately NOT the same number as terminal.v1.SyncStatusChanged.pending,
+// which is the UNION of the two and keeps that meaning: the shell's status line
+// and its documented wording ("N orders pending, oldest Xm ago") are written
+// against the union, and redefining it to make the two wires match would change
+// what a cashier reads in order to tidy a name.
+//
+// The counts are over EVERY outbox entity type — orders, shift opens and closes,
+// cash movements, refunds, EOD batches — not orders alone. The question is "how
+// much has this till not handed over", and the Terminal Fleet table carries a
+// separate bills column for the other one.
+message SyncBacklog {
+  int32 pending_sync_count      = 1; // entries awaiting a first successful upload
+  int64 oldest_pending_age_secs = 2; // age of the oldest pending-or-failed entry; 0 = queue empty
+  int32 failed_sync_count       = 3; // entries that have failed at least one drain attempt
 }
 
 message HeartbeatResponse {
@@ -234,10 +272,50 @@ message OrderLine {
   string mrp_str        = 8; // decimal, tax-inclusive; empty if none
 }
 
+// Payment is one tender on the bill.
+//
+// Tags 4–8 are the STRUCTURED tender identity: they are what every server-side
+// report and the settlement matcher read, while `reference` (3) is the free-text
+// value the cashier typed, kept because it is what prints on the customer's copy.
+//
+// Each of 4–8 is optional and independently so. Empty — or malformed for its
+// column — is stored NULL and NEVER rejects the upload. The sale is already
+// committed on the till and the receipt is already in the customer's hand, so
+// failing an outbox replay over a mistyped reference would wedge a committed
+// bill in the device queue forever. Same stance as OrderLine.mrp_str, for the
+// same reason. A till that sends none of them keeps selling, unchanged.
+//
+// card_type/card_last4/terminal_ref belong to a card rail; utr/payer_vpa to UPI.
+// A tender is on one rail, so the two sets never co-occur — which is why the
+// server reads the acquirer reference as COALESCE(utr, terminal_ref) rather than
+// as two separate facts.
+//
+// A FULL card number is never carried here, or anywhere in this family.
+// card_last4 is the only card-number field that exists: four digits, against a
+// server column of character(4) with a digits-only CHECK.
+//
+// Additive in v1.28.0; tags 1–3 are frozen.
 message Payment {
-  string method     = 1; // "cash" | "credit_card" | "upi" | "wallet"
+  // method is a public.payment_method enum value, not a free-form label.
+  string method     = 1;
   string amount_str = 2;
-  string reference  = 3; // card last-4, UPI txn id, etc.
+  // reference is the free-text tender reference exactly as the cashier typed it,
+  // kept verbatim because it is what prints on the receipt's ref line and what a
+  // reprint reads back off the device.
+  //
+  // Since v1.28.0 the device ALSO sends that same value in its typed field — utr
+  // for a UPI tender, terminal_ref for a card one — so the cashier types the
+  // acquirer reference once and both destinations are filled.
+  //
+  // No server query reads this column. It is a device-side artefact — the
+  // receipt's ref line and the recalled bill's tender row — and is kept for
+  // that, not for a report.
+  string reference  = 3;
+  string card_type    = 4; // card network/brand off the slip (visa | mastercard | rupay | amex | …), ≤30
+  string card_last4   = 5; // EXACTLY 4 digits; anything else stores NULL. Never the full number.
+  string terminal_ref = 6; // card-terminal / acquirer approval code or RRN, ≤100
+  string utr          = 7; // UPI Unique Transaction Reference, ≤35
+  string payer_vpa    = 8; // UPI payer address, handle@psp, ≤255
 }
 
 message SubmitOrderResponse {
@@ -595,6 +673,36 @@ message PaymentMethodConfig {
   // engine; the secrets above (vpa/terminal_tid/merchant_id) and gl_account do not.
   string hotkey         = 8; // explicit cashier hotkey (device render; survives localization)
   string reference_mode = 9; // "none" | "optional" | "required" (device reference-capture gate)
+
+  // ── Details capture (v1.28.0). Tags 1–9 are frozen. ─────────────────────────
+  //
+  // details_mode is the per-store, per-method policy for capturing the
+  // STRUCTURED tender identity (Payment 4–8) — decided in configuration by the
+  // customer, never hardcoded on the device:
+  //   "none"     — the details row is hidden.
+  //   "optional" — a collapsed disclosure row; the tender may complete with it empty.
+  //   "required" — the row is open and the tender CANNOT complete until it is filled.
+  // Absent or unrecognised reads as "optional", which is the documented default.
+  //
+  // Deliberately the same three words as reference_mode (9) rather than a second
+  // vocabulary: it is the same kind of decision about a different set of fields,
+  // and two spellings of one policy are two things to keep in step.
+  string details_mode = 10;
+  // details_kind names WHICH fields that policy governs, because that is a
+  // property of the payment RAIL and not of the store's choice:
+  //   "card" — card_type + card_last4, with terminal_ref as the acquirer reference
+  //   "upi"  — payer_vpa, with utr as the acquirer reference
+  //   ""     — this method has no structured identity (cash, cheque, …)
+  //
+  // The SERVER derives it from the payment_method enum, in one function, and it
+  // is NOT a stored column: the enum is already the single source of truth for
+  // which rail a method is, and a column beside it is a second answer that can
+  // disagree.
+  //
+  // It rides the wire so the device never infers a rail from the method string.
+  // "credit_card" and "debit_card" are both card, "card" is not an enum value at
+  // all, and a device-side startsWith("card") is wrong on the first debit tender.
+  string details_kind = 11;
 }
 
 // ── Shift management (v1.10.0) ────────────────────────────────────────────────
